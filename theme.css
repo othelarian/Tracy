@@ -1,0 +1,9 @@
+h1 {
+    text-align: center;
+}
+
+.core {
+    margin: auto;
+    width: 80%;
+    min-width: 500px;
+}
