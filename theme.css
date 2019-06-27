@@ -7,3 +7,16 @@ h1 {
     width: 80%;
     min-width: 500px;
 }
+
+.error {
+    font-weight: bold;
+    color: "red";
+}
+
+.hide {
+    display: none;
+}
+
+.waiter {
+    text-align: center;
+}

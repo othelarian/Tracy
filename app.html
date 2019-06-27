@@ -17,19 +17,27 @@ var app = Elm.Main.init({ node: document.getElementById("elm")});
 if (document.getElementById("elm")) { document.getElementById("elm").innerText = ''; }
 else {
     app.ports.ask.subscribe(function(request) {
-        switch (request) {
+        switch (request.question) {
             case "Starting":
+                gapi.load("client:auth2", gapi_initClient);
+                break;
+            case "Authenticate":
                 //
+                //
+                var data = {
+                    "status" : "Error",
+                    "desc" : "flower"
+                };
+                app.ports.received.send(data)
                 //
                 break;
-            case "Login":
+            case "SignOut":
                 //
                 //
                 break;
         }
     });
 }
-
 </script>
 </body>
 </html>
