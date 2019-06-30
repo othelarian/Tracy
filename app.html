@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <title>Tracy</title>
     <script src="https://apis.google.com/js/api.js"></script>
-    <script src="gapi.js"></script>
     <script src="keys.js"></script>
     <script src="app.js"></script>
     <link rel="stylesheet" type="text/css" href="theme.css" />
@@ -13,27 +12,45 @@
 <body>
 <div id="elm"></div>
 <script>
-var app = Elm.Main.init({ node: document.getElementById("elm")});
-if (document.getElementById("elm")) { document.getElementById("elm").innerText = ''; }
+var DISCOVERY_DOCS = ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"];
+var SCOPES = "https://www.googleapis.com/auth/drive.appdata";
+
+function gapi_initClient() {
+    gapi.client.init({
+        apiKey: API_KEY,
+        clientId: CLIENT_ID,
+        discoveryDocs: DISCOVERY_DOCS,
+        scope: SCOPES
+    }).then(function() {
+        gapi.auth2.getAuthInstance().isSignedIn.listen(gapi_updateSignInStatus);
+        gapi_updateSignInStatus(gapi.auth2.getAuthInstance().isSignedIn.get());
+    }, function(error) {
+        app.ports.received.send({"status": "Error", "desc": JSON.stringify(error)});
+    });
+}
+
+function gapi_updateSignInStatus(isSignedIn) {
+    var data = {"status": isSignedIn? "Connected" : "Unconnected"};
+    if (isSignedIn) { data["token"] = gapi.auth.getToken().access_token; }
+    app.ports.received.send(data);
+}
+
+var app = Elm.Main.init({
+    node: document.getElementById("elm"),
+    flags: API_KEY
+});
+if (document.getElementById("elm")) { document.getElementById("elm").innerText = 'Bad news from elm...'; }
 else {
     app.ports.ask.subscribe(function(request) {
-        switch (request.question) {
+        switch (request) {
             case "Starting":
                 gapi.load("client:auth2", gapi_initClient);
                 break;
             case "Authenticate":
-                //
-                //
-                var data = {
-                    "status" : "Error",
-                    "desc" : "flower"
-                };
-                app.ports.received.send(data)
-                //
+                gapi.auth2.getAuthInstance().signIn();
                 break;
             case "SignOut":
-                //
-                //
+                gapi.auth2.getAuthInstance().signOut();
                 break;
         }
     });

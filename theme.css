@@ -2,21 +2,59 @@ h1 {
     text-align: center;
 }
 
+.button {
+    border: solid 1px #0099ff;
+    border-radius: 10px;
+    background: #0099ff;
+    color: white;
+    padding: 3px;
+}
+.button:hover {
+    background: white;
+    color: #0099ff;
+}
+
 .core {
     margin: auto;
     width: 80%;
     min-width: 500px;
+    position: relative;
 }
 
 .error {
     font-weight: bold;
-    color: "red";
+    color: red;
+}
+div.error {
+    margin-top: 10px;
+    margin-bottom: 10px;
 }
 
 .hide {
     display: none;
 }
 
+.panel_connect {
+    text-align: center;
+}
+
+.panel_deconnect {
+    width: 100px;
+    position: absolute;
+    right: 0;
+    top: 0;
+    text-align: center;
+}
+
 .waiter {
     text-align: center;
+}
+
+.zone_status {
+    width: 60%;
+    font-weight: bold;
+    font-size: 1.1rem;
+}
+.zone_status button {
+    float: right;
 }
