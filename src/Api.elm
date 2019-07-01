@@ -1,9 +1,10 @@
-module Api exposing (FileId, FileSelector, HttpAction, httpErrorToString, makeRequest, makeRequestModel)
-
-import Types exposing (..)
+module Api exposing (ApiKey, FileId, FileSelector, ApiAction, Token, httpErrorToString, makeRequest)
 
 import Http
 import Bytes.Encode as BE
+import Json.Decode as JD
+import Json.Decode exposing (Decoder, decodeValue, errorToString, field, int, list, string)
+import Json.Encode as JE
 import Url
 import Url.Builder as UB
 
@@ -16,26 +17,44 @@ httpErrorToString error =
         Http.BadStatus status -> ("Il y a un soucis, voici le code : "++(String.fromInt status))
         Http.BadBody body -> ("Vous avez reçu un message étonnant :\n"++body)
 
-type HttpAction
+type ApiAction
     = ListFiles
     | CreateFile
     | ReadFile
     | UpdateFile
     | DeleteFile
 
+type ApiMsg
+    = GetListFiles
+    | GetCreateFile
+    | GetReadFile
+    | GetUpdateFile
+    | GetDeleteFile
+
 type alias FileId = String
 
-type alias FileProject = Bool
+type alias ApiKey = String
+
+type alias Token = String
 
 type FileSelector
     = FSNone
-    | FSCreate String FileProject
-    | FSRead FileId FileProject
+    --
+    | FSCreate String String -- TODO : il faut ajouter la structure de données
+    --
+    | FSRead FileId String -- TODO : il faut ajouter une structure de capture, pour comprendre comment décoder les infos
+    --
     | FSUpdate FileId String -- TODO : changer la string par une structure de données
+    --
     | FSDelete FileId
+
+-- PREPARE
 
 prepareMetadata : FileSelector -> String
 prepareMetadata selector =
+    --
+    -- TODO : il va falloir rendre cette structure générique
+    --
     let
         base = "{'parents':['appDataFolder'],'mimeType':'application/json','name':'"
     in
@@ -45,6 +64,12 @@ prepareMetadata selector =
 
 prepareMedia : FileSelector -> String
 prepareMedia selector =
+    --
+    -- TODO : cette fonction n'est pas générique, il va falloir changer tout ça
+    --
+    ""
+    --
+    {-
     case selector of
         FSCreate _ isProject ->
             if isProject then
@@ -55,16 +80,38 @@ prepareMedia selector =
         -- TODO : cas du update à traiter ici
         --
         _ -> ""
+    -}
 
 prepareBytes : String -> (FileSelector -> String) -> FileSelector -> Http.Part
 prepareBytes name fun value =
     fun value |> BE.string |> BE.encode |> Http.bytesPart name "application/json"
 
-makeRequestModel : HttpAction -> FileSelector -> Model -> Cmd msg
-makeRequestModel action selector model =
-    makeRequest action selector model.token model.api_key
+-- JSON DECODE
 
-makeRequest : HttpAction -> FileSelector -> Token -> ApiKey -> Cmd msg
+type alias InfoFile =
+    { fileId : FileId
+    , name : String
+    }
+
+decodeInfoFile : Decoder InfoFile
+decodeInfoFile =
+    JD.map2 InfoFile (field "id" string) (field "name" string)
+
+decodeListFiles : Decoder (List InfoFile)
+decodeListFiles =
+    field "files" (list decodeInfoFile)
+
+decodeCreateFile : Decoder String
+decodeCreateFile =
+    field "id" string
+
+-- TODO : decodeReadFile ? ou alors il est fourni à travers l'api ?
+
+-- TODO : pas besoin de decoder pour le delete, mais pour l'update ?
+
+-- API REQUEST
+
+makeRequest : ApiAction -> FileSelector -> Token -> ApiKey -> Cmd msg
 makeRequest action selector token apiKey =
     Http.request
         { method = case action of
@@ -122,13 +169,15 @@ makeRequest action selector token apiKey =
                         _ -> False
                 in
                 case isProject of
-                    False -> Http.expectJson GetReadHome decodeReadHome
-                    True -> Http.expectJson GetReadProject decodeReadProject
+                    --False -> Http.expectJson GetReadHome decodeReadHome
+                    --True -> Http.expectJson GetReadProject decodeReadProject
+                    _ -> Http.expectWhatever
             --
-            -- TODO : gérer tout les cas
+            -- TODO : le update n'est certainement pas un "whatever"
             --
-            _ -> Http.expectJson TestRep decodeTest
+            UpdateFile -> Http.expectWhatever GetUpdateFile
             --
+            DeleteFile -> Http.expectWhatever GetDeleteFile
         , timeout = Nothing
         , tracker = Nothing
         }

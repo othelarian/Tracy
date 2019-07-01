@@ -13,6 +13,7 @@ import Json.Decode exposing (Decoder, decodeValue, errorToString, field, int, li
 import Json.Encode as JE
 
 
+-- WIP : séparation de l'api dans un fichier à part (Api.elm)
 -- WIP : lecture du fichier tracy.json
 -- TODO : listing des projets
 -- TODO : ajouter des projets
@@ -64,23 +65,6 @@ decodeAnswer value =
                 "Unconnected" -> Unconnected
                 _ -> AError "Something went wrong, bad value for status"
 
-type alias InfoFile =
-    { fileId : FileId
-    , name : String
-    }
-
-decodeInfoFile : Decoder InfoFile
-decodeInfoFile =
-    JD.map2 InfoFile (field "id" string) (field "name" string)
-
-decodeListFiles : Decoder (List InfoFile)
-decodeListFiles =
-    field "files" (list decodeInfoFile)
-
-decodeCreateFile : Decoder String
-decodeCreateFile =
-    field "id" string
-
 type alias ListProjects = List InfoFile
 
 decodeReadHome : Decoder (List InfoFile)
@@ -103,6 +87,11 @@ decodeTest =
     field "files" (list string)
 
 
+-- API
+
+makeRequestModel : HttpAction -> FileSelector -> Model -> Cmd msg
+makeRequestModel action selector model =
+    makeRequest action selector model.token model.api_key
 
 -- UPDATE
 

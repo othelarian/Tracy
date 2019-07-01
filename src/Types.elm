@@ -46,15 +46,12 @@ type ShowErr
     = ErrYes String
     | ErrNo
 
-type alias ApiKey = String
 
 type alias FileId = String
 
 type alias NeedClean = Bool
 
 type alias ProjectId = String
-
-type alias Token = String
 
 type alias ProjectInfo =
     { fileId : FileId
