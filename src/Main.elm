@@ -1,24 +1,26 @@
 port module Main exposing (..)
 
+import Api exposing (..)
+import Types exposing (..)
+
 import Browser
 import Browser.Navigation as Nav
-import Bytes.Encode as BE
-import Html exposing (Html, button, div, h1, span, text)
+import Html exposing (Html, button, div, h1, input, span, text)
 import Html.Attributes exposing (..)
-import Html.Events exposing (onClick)
-import Http
+import Html.Events exposing (onClick, onInput)
 import Json.Decode as JD
 import Json.Decode exposing (Decoder, decodeValue, errorToString, field, int, list, string)
 import Json.Encode as JE
-import Url
-import Url.Builder as UB
 
 
--- WIP : faire l'initialisation si besoin
+-- WIP : lecture du fichier tracy.json
 -- TODO : listing des projets
 -- TODO : ajouter des projets
 -- TODO : supprimer des projets
 -- TODO : vérifier qu'il y a autant de fichiers de projets que de projets, et faire le ménage si besoin
+
+-- TODO : icone pour la connexion
+-- TODO : icone pour la déconnexion
 
 -- TODO : page d'accueil d'un projet, avec son nom et sa description
 -- TODO : faire en sorte de pouvoir modifier le nom et la description
@@ -35,94 +37,6 @@ main =
         , view = view
         }
 
--- MODEL
-
-type HomePhase
-    = HomeCheck
-    | HomeError
-    --
-    -- TODO : finir les phases
-    --
-    | HomeInit
-    --
-    | HomeList NeedClean
-    --
-    | HomeClean
-    --
-    --| HomeAdd
-    --| HomeRemove
-    --
-
-type Status
-    = Connecting
-    | LogIn
-    | Home HomePhase
-    --
-    -- TODO : project est en cours de construction
-    --
-    | Project
-    --
-
-type Question
-    = AskInit
-    | AskLogIn
-    | AskLogOut
-
-type Answer
-    = AError String
-    | Connected (Result JD.Error Token)
-    | Unconnected
-
-type ShowErr
-    = ErrYes String
-    | ErrNo
-
-type alias ApiKey = String
-
-type alias FileId = String
-
-type alias NeedClean = Bool
-
-type alias Token = String
-
-type alias Model =
-    { status : Status
-    , prevStatus : Status
-    , api_key : ApiKey
-    , token : Token
-    , withErr : ShowErr
-    }
-
-modelChangeStatus : Model -> Status -> Status -> Model
-modelChangeStatus model actual previous =
-    Model actual previous model.api_key model.token ErrNo
-
-modelGotError : Model -> String -> Model
-modelGotError model error =
-    case model.status of
-        Connecting -> {model | status = LogIn, withErr = ErrYes error}
-        LogIn -> model -- cas impossible
-        Home phase ->
-            case phase of
-                HomeCheck ->
-                    {model | status = Home HomeError, prevStatus = Home HomeCheck, withErr = ErrYes error}
-                HomeError ->
-                    {model | prevStatus = Home HomeError, withErr = ErrYes error}
-                --
-                -- TODO : faire les autres cas
-                --
-                _ -> model
-                --
-        Project ->
-            --
-            -- TODO : finaliser cette partie
-            --
-            model
-            --
-
-init : ApiKey -> (Model, Cmd Msg)
-init apiKey =
-    (Model Connecting LogIn apiKey "" ErrNo, ask "Starting")
 
 -- JSON ENCODE
 
@@ -155,115 +69,42 @@ type alias InfoFile =
     , name : String
     }
 
+decodeInfoFile : Decoder InfoFile
+decodeInfoFile =
+    JD.map2 InfoFile (field "id" string) (field "name" string)
+
 decodeListFiles : Decoder (List InfoFile)
 decodeListFiles =
-    field "files" (list (JD.map2 InfoFile (field "id" string) (field "name" string)))
+    field "files" (list decodeInfoFile)
 
+decodeCreateFile : Decoder String
+decodeCreateFile =
+    field "id" string
 
+type alias ListProjects = List InfoFile
 
+decodeReadHome : Decoder (List InfoFile)
+decodeReadHome =
+    field "projects" (list decodeInfoFile)
+
+decodeReadProject : Decoder String
+decodeReadProject =
+    --
+    -- TODO : décodage du json pour un projet
+    --
+    field "name" string
+    --
+
+--
+-- TODO : a supprimer dès que possible
+--
 decodeTest : Decoder (List String)
 decodeTest =
     field "files" (list string)
 
 
 
--- HTTP
-
-httpErrorToString : Http.Error -> String
-httpErrorToString error =
-    case error of
-        Http.BadUrl badUrl -> ("Vous avez tentez d'appeler ça ? vraiment ? -> "++badUrl)
-        Http.Timeout -> "Vous avez pris trop de temps ..."
-        Http.NetworkError -> "Il y a un truc avec le réseau ..."
-        Http.BadStatus status -> ("Il y a un soucis, voici le code : "++(String.fromInt status))
-        Http.BadBody body -> ("Vous avez reçu un message étonnant :\n"++body)
-
-type HttpAction
-    = ListFiles
-    | CreateFile
-    | ReadFile
-    | UpdateFile
-    | DeleteFile
-
-type FileSelector
-    = FSNone
-    | Tracy
-    | FileId String
-
-makeRequestModel : HttpAction -> FileSelector -> Model -> Cmd Msg
-makeRequestModel action selector model =
-    makeRequest action selector model.token model.api_key
-
-makeRequest : HttpAction -> FileSelector -> Token -> ApiKey -> Cmd Msg
-makeRequest action selector token apiKey =
-    Http.request
-        { method = case action of
-            CreateFile -> "POST"
-            --
-            UpdateFile -> "" -- TODO : TEST à faire, normalement "PATCH"
-            --
-            DeleteFile -> "DELETE"
-            _ -> "GET"
-        , headers = [(Http.header "authorization" ("Bearer "++token))]
-        , url = (UB.crossOrigin
-                "https://www.googleapis.com"
-                (let
-                    path = ["drive", "v3", "files"]
-                    fileId = case selector of
-                        FileId id -> id
-                        _ -> ""
-                in
-                case action of
-                    ListFiles -> path
-                    CreateFile -> "upload"::path
-                    UpdateFile -> List.append ("upload"::path) [fileId]
-                    _ -> List.append path [fileId]
-                )
-                (let
-                    key = [UB.string "key" apiKey]
-                in
-                case action of
-                    ListFiles -> (UB.string "spaces" "appDataFolder")::key
-                    --
-                    -- TODO : ajouter les élément manquant, si besoin
-                    --
-                    _ -> []
-                )
-            )
-        , body = case action of
-            --
-            --
-            --
-            -- TODO : CreateFile et UpdateFile
-            --
-            _ -> Http.emptyBody
-        , expect = case action of
-            ListFiles -> Http.expectJson GetListFiles decodeListFiles
-            --
-            --
-            -- TODO : gérer tout les cas
-            --
-            _ -> Http.expectJson TestRep decodeTest
-            --
-        , timeout = Nothing
-        , tracker = Nothing
-        }
-
 -- UPDATE
-
-type Msg
-    = Asking Question
-    | ReceptionData JE.Value
-    | GetListFiles (Result Http.Error (List InfoFile))
-    | HomeRetry
-    --
-    -- TODO : la liste des messages continue
-    --
-    | TestList
-    | TestCreate
-    | TestDelete
-    | TestRep (Result Http.Error (List String))
-    --
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
@@ -291,19 +132,23 @@ update msg model =
             case result of
                 Ok listFiles ->
                     if (List.length listFiles) == 0 then
-                        --
-                        -- TODO : initialisation
-                        --
-                        ( modelChangeStatus model (Home HomeInit) (Home HomeInit)
-                        , makeRequestModel CreateFile Tracy model)
-                        --
+                        ( modelChangeStatus model (Home HomeInit) (Home HomeCheck)
+                        , makeRequestModel CreateFile (FSCreate "tracy" False) model)
                     else
-                        --
-                        -- TODO : filtrer la liste, et s'il n'y a pas de tracy.json, alors on part en init
-                        --
-                        (model, Cmd.none)
-                        --
-                        --
+                        let
+                            filteredList = List.filter (\n -> n.name == "tracy.json") listFiles
+                        in
+                        if List.length filteredList == 1 then
+                            let
+                                tracy = case List.head filteredList of
+                                    Just value -> value
+                                    Nothing -> InfoFile "" ""
+                            in
+                            ( modelChangeStatus {model | homeId = tracy.fileId} (Home HomeGetInfo) (Home HomeError)
+                            , makeRequestModel ReadFile (FSRead tracy.fileId False) model)
+                        else
+                            ( modelChangeStatus model (Home HomeInit) (Home HomeCheck)
+                            , makeRequestModel CreateFile (FSCreate "tracy" False) model)
                 Err error -> (modelGotError model (httpErrorToString error), Cmd.none)
         HomeRetry ->
             case model.prevStatus of
@@ -311,7 +156,8 @@ update msg model =
                     ( modelChangeStatus model model.prevStatus model.prevStatus
                     , case phase of
                         HomeCheck -> makeRequestModel ListFiles FSNone model
-                        --
+                        HomeInit -> makeRequestModel CreateFile (FSCreate "tracy" False) model
+                        HomeGetInfo -> makeRequestModel ReadFile (FSRead model.homeId False) model
                         --
                         -- TODO : faire les autres cas
                         --
@@ -319,65 +165,59 @@ update msg model =
                         --
                     )
                 _ -> (model, Cmd.none)
+        GetCreateFile result ->
+            case result of
+                Ok createdFile ->
+                    ( modelChangeStatus model (Home HomeCheck) (Home HomeError)
+                    , makeRequestModel ListFiles FSNone model)
+                Err error -> (modelGotError model (httpErrorToString error), Cmd.none)
+        GetReadHome result ->
+            case result of
+                Ok fileRead -> ({model | projects = fileRead, status = (Home HomeList)}, Cmd.none)
+                Err error -> (modelGotError model (httpErrorToString error), Cmd.none)
+        GetReadProject result ->
+            case result of
+                Ok fileRead ->
+                    --
+                    -- TODO : mettre à jour les infos sur le projet
+                    --
+                    (model, Cmd.none)
+                    --
+                Err error -> (modelGotError model (httpErrorToString error), Cmd.none)
+        AddProject ->
             --
-            -- TODO : ajouter ici les autres messages
+            -- TODO : préparer l'affichage pour créer un nouveau projet
             --
-            -- TODO : après cette ligne ce trouve des fonctions de tests qui devraient disparaître à terme
+            (model, Cmd.none)
             --
+        CancelProject ->
+            --
+            -- TODO : annuler la création d'un projet
+            --
+            (model, Cmd.none)
+            --
+        CreateProject ->
+            --
+            -- TODO : valider la création d'un projet (envoi de la demande de création, etc)
+            --
+            (model, Cmd.none)
+            --
+        --
+        --
+        -- TODO : ajouter ici les autres messages
+        --
+        -- TODO : après cette ligne ce trouve des fonctions de tests qui devraient disparaître à terme
+        --
         TestList ->
-            (model, makeRequest ListFiles FSNone model.token model.api_key)
-            --
+            (model, makeRequestModel ListFiles FSNone model)
         TestCreate ->
-            --
-            (model
-            , Http.request
-                { method = "POST"
-                , headers = [(Http.header "authorization" ("Bearer "++model.token))]
-                , url = ("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&alt=json&key="++model.api_key)
-                , body = Http.multipartBody
-                    [ Http.bytesPart
-                        "Metadata"
-                        "application/json"
-                        (BE.encode (BE.string "{'parents':['appDataFolder'],'name':'test123.json','mimeType':'application/json'}"))
-                        --Http.stringPart "Metadata" "{'parents':['appDataFolder'],'name':'test123.json','mimeType':'application/json'}"
-                    --, Http.stringPart "Media" "{'test': 'value'}"
-                    , Http.bytesPart
-                        "Media"
-                        "application/json"
-                        (BE.encode (BE.string "{'test': 'value'}"))
-                    ]
-                , expect = Http.expectJson TestRep (list string)
-                , timeout = Nothing
-                , tracker = Nothing
-                }
-            )
-            --
+            (model, makeRequestModel CreateFile (FSCreate model.testValue True) model)
+        TestRead ->
+            (model, makeRequestModel ReadFile (FSRead model.testValue True) model)
         TestDelete ->
-            (model
-            , Http.request
-                { method = "DELETE"
-                , headers = [
-                    (Http.header "authorization" ("Bearer "++model.token))
-                    ]
-                , url = (Url.toString (Url.Url
-                    Url.Https
-                    "www.googleapis.com"
-                    Nothing
-                    "/drive/v3/files/1KXH4ZYiI74fyMC0z-IUzc6oMkoHr--vecD4sMjTiqhOSCW_R6w"
-                    (Just ("key="++model.api_key))
-                    Nothing
-                ))
-
-                --"https://www.googleapis.com/drive/v3/files/1xo_US3LixGC5uuTSkzhza-lEakl63-JkKkDwCUOLhS9xHOw6xA"
-                , body = Http.emptyBody
-                , expect = Http.expectJson TestRep (list string)
-                , timeout = Nothing
-                , tracker = Nothing
-                }
-            )
-            --
+            (model, makeRequestModel DeleteFile (FSDelete model.testValue) model)
         TestRep rep -> (model, Cmd.none)
-            --
+        TestChange value -> ({model | testValue = value}, Cmd.none)
 
 -- PORTS
 
@@ -394,22 +234,22 @@ subscriptions model =
 
 view : Model -> Browser.Document Msg
 view model =
+    let
+        deco_btn = if model.status /= LogIn && model.status /= Connecting then
+            [ div [class "panel_deconnect"] [button
+                [onClick (Asking AskLogOut), class "button_topsnap"]
+                [text "Déconnexion"]
+                ]
+            ]
+            else []
+    in
     { title = "Tracy"
-    , body = [
-        --h1 [] [text "Tracy"]
-        --
-        --
-        --div [] [text ("API_KEY: "++model.api_key)]
-        --, div [] [text ("token: "++model.token)]
-        --,
-        --
+    , body = List.append deco_btn [
         case model.status of
             Connecting -> div [class "core waiter"] [text "Connexion en cours ..."]
             LogIn -> viewLogIn model.withErr
             Home phase -> viewHome model phase
-            --
-            Project -> viewProject
-            --
+            Project phase -> viewProject model phase
     ]}
 
 viewError : ShowErr -> Html Msg
@@ -428,21 +268,30 @@ viewLogIn withErr =
 viewHome : Model -> HomePhase -> Html Msg
 viewHome model phase =
     div [class "core"]
-        [ div [class "panel_deconnect"]
-            [button
-                [onClick (Asking AskLogOut), class "button"]
-                [text "Déconnexion"]
-            ]
-        , div [class "zone_status"]
+        [ div [class "zone_status"]
             (case phase of
                 HomeCheck -> [text "Vérification ..."]
                 HomeError ->
-                    [span [class "error"] [text "Il y a eu un problème !"]
+                    [ span [class "error"] [text "Il y a eu un problème !"]
                     , button [onClick HomeRetry, class "button"] [text "Réessayer"]
                     ]
-                --
                 HomeInit -> [text "Initialisation ..."]
+                HomeGetInfo -> [text "Importation ..."]
+                HomeList ->
+                    [ span [] [text "Liste des Projets"]
+                    --
+                    , button [onClick AddProject] [text "Ajouter"]
+                    --
+                    ]
+                    --
+                    -- TODO : lister tous les projets
+                    --
+                    -- TODO : d'abord les boutons
+                    --
+                    -- TODO : puis la liste des projets
+                    --
                 --
+                -- TODO : ajouter les cas manquant
                 --
                 _ -> [text "another status"]
                 --
@@ -455,14 +304,16 @@ viewHome model phase =
             -- TODO : test avec HTTP from elm
             --
             button [onClick TestList] [text "List"]
+            , button [onClick TestRead] [text "Read"]
             , button [onClick TestCreate] [text "Create"]
+            , input [value model.testValue, onInput TestChange, style "width" "250px"] []
             , button [onClick TestDelete] [text "Delete"]
             --
         ]
         ]
 
-viewProject : Html Msg
-viewProject =
+viewProject : Model -> ProjectPhase -> Html Msg
+viewProject model phase =
     div [class "core"]
         --
         [text "page d'un projet"]

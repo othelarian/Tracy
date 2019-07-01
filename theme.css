@@ -2,6 +2,10 @@ h1 {
     text-align: center;
 }
 
+body {
+    margin: 0;
+}
+
 .button {
     border: solid 1px #0099ff;
     border-radius: 10px;
@@ -10,6 +14,18 @@ h1 {
     padding: 3px;
 }
 .button:hover {
+    background: white;
+    color: #0099ff;
+}
+
+.button_topsnap {
+    border: solid 1px #0099ff;
+    border-radius: 0 0 10px 10px;
+    background: #0099ff;
+    color: white;
+    padding: 3px;
+}
+.button_topsnap:hover {
     background: white;
     color: #0099ff;
 }
