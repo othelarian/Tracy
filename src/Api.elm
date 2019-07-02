@@ -24,13 +24,6 @@ type ApiAction
     | UpdateFile
     | DeleteFile
 
-type ApiMsg
-    = GetListFiles
-    | GetCreateFile
-    | GetReadFile
-    | GetUpdateFile
-    | GetDeleteFile
-
 type alias FileId = String
 
 type alias ApiKey = String
@@ -111,8 +104,8 @@ decodeCreateFile =
 
 -- API REQUEST
 
-makeRequest : ApiAction -> FileSelector -> Token -> ApiKey -> Cmd msg
-makeRequest action selector token apiKey =
+makeRequest : ApiAction -> FileSelector -> (Result Http.Error a -> msg) -> Token -> ApiKey -> Cmd msg
+makeRequest action selector message token apiKey =
     Http.request
         { method = case action of
             CreateFile -> "POST"
@@ -160,24 +153,20 @@ makeRequest action selector token apiKey =
             else
                 Http.emptyBody
         , expect = case action of
-            ListFiles -> Http.expectJson GetListFiles decodeListFiles
-            CreateFile -> Http.expectJson GetCreateFile decodeCreateFile
+            ListFiles -> Http.expectJson message decodeListFiles
+            CreateFile -> Http.expectJson message decodeCreateFile
             ReadFile ->
-                let
-                    isProject = case selector of
-                        FSRead _ bool -> bool
-                        _ -> False
-                in
-                case isProject of
-                    --False -> Http.expectJson GetReadHome decodeReadHome
-                    --True -> Http.expectJson GetReadProject decodeReadProject
-                    _ -> Http.expectWhatever
+                --
+                --
+                Http.expectWhatever message
+                --
+                --
             --
             -- TODO : le update n'est certainement pas un "whatever"
             --
-            UpdateFile -> Http.expectWhatever GetUpdateFile
+            UpdateFile -> Http.expectWhatever message
             --
-            DeleteFile -> Http.expectWhatever GetDeleteFile
+            DeleteFile -> Http.expectWhatever message
         , timeout = Nothing
         , tracker = Nothing
         }
