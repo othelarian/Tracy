@@ -1,4 +1,4 @@
-module Api exposing (ApiKey, FileId, FileSelector, ApiAction, Token, httpErrorToString, makeRequest)
+module Api exposing (ApiKey, FileId, FileSelector, ApiAction, Token, httpErrorToString, api??? makeRequest)
 
 import Http
 import Bytes.Encode as BE
@@ -8,6 +8,8 @@ import Json.Encode as JE
 import Url
 import Url.Builder as UB
 
+-- PROCESSING ERROR
+
 httpErrorToString : Http.Error -> String
 httpErrorToString error =
     case error of
@@ -16,6 +18,8 @@ httpErrorToString error =
         Http.NetworkError -> "Il y a un truc avec le réseau ..."
         Http.BadStatus status -> ("Il y a un soucis, voici le code : "++(String.fromInt status))
         Http.BadBody body -> ("Vous avez reçu un message étonnant :\n"++body)
+
+-- API TYPES
 
 type ApiAction
     = ListFiles
@@ -104,8 +108,28 @@ decodeCreateFile =
 
 -- API REQUEST
 
-makeRequest : ApiAction -> FileSelector -> (Result Http.Error a -> msg) -> Token -> ApiKey -> Cmd msg
-makeRequest action selector message token apiKey =
+apiGetListFiles : FileSelector -> (Result Http.Error (List InfoFile) -> msg) -> Token -> ApiKey -> Cmd msg
+apiGetListFiles selector message token apiKey =
+    makeRequest ListFiles selector message decodeListFiles token apiKey
+
+apiCreateFile : FileSelector -> (Result Http.Error String -> msg) -> Token -> ApiKey -> Cmd msg
+apiCreateFile selector message token apiKey =
+    makeRequest CreateFile selector message decodeCreateFile token apiKey
+
+--apiReadFile : FileSelector -> (Result Http.Error String -> msg) -> Token -> ApiKey -> Cmd msg
+--apiReadFile selector message token apiKey =
+--    makeRequest ReadFile selector message decodeReadFile token apiKey
+
+--apiUpdateFile : FileSelector -> 
+
+apiDeleteFile : FileSelector -> (Result Http.Error JD.Value -> msg) -> Token -> ApiKey -> Cmd msg
+apiDeleteFile selector message token apiKey =
+    makeRequest DeleteFile selector message JD.value token apiKey
+
+-- MAIN REQUEST
+
+makeRequest : ApiAction -> FileSelector -> (Result Http.Error a -> msg) -> (Decoder a) -> Token -> ApiKey -> Cmd msg
+makeRequest action selector message decoder token apiKey =
     Http.request
         { method = case action of
             CreateFile -> "POST"
@@ -152,21 +176,7 @@ makeRequest action selector message token apiKey =
                     ]
             else
                 Http.emptyBody
-        , expect = case action of
-            ListFiles -> Http.expectJson message decodeListFiles
-            CreateFile -> Http.expectJson message decodeCreateFile
-            ReadFile ->
-                --
-                --
-                Http.expectWhatever message
-                --
-                --
-            --
-            -- TODO : le update n'est certainement pas un "whatever"
-            --
-            UpdateFile -> Http.expectWhatever message
-            --
-            DeleteFile -> Http.expectWhatever message
+        , expect = Http.expectJson message decoder
         , timeout = Nothing
         , tracker = Nothing
         }
