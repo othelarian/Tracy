@@ -1,13 +1,15 @@
 port module Main exposing (..)
 
 import Api exposing (..)
-import Types exposing (..)
+import Home exposing (..)
+import Project exposing (..)
 
 import Browser
 import Browser.Navigation as Nav
 import Html exposing (Html, button, div, h1, input, span, text)
 import Html.Attributes exposing (..)
-import Html.Events exposing (onClick, onInput)
+import Html.Events exposing (onClick)
+import Http
 import Json.Decode as JD
 import Json.Decode exposing (Decoder, decodeValue, errorToString, field, int, list, string)
 import Json.Encode as JE
@@ -39,6 +41,96 @@ main =
         }
 
 
+-- MODEL HELPERS
+
+modelChangeStatus : Model -> Status -> Status -> Model
+modelChangeStatus model actual previous =
+    {model | status = actual, prevStatus = previous, withErr = ErrNo }
+
+modelGotError : Model -> String -> Model
+modelGotError model error =
+    let
+        newModel = {model | withErr = ErrYes error}
+    in
+    case model.status of
+        Connecting -> {newModel | status = LogIn}
+        LogIn -> model -- cas impossible
+        Home actPhase ->
+            let
+                prevPhase = case model.prevStatus of
+                    Home thisPhase -> thisPhase
+                    _ -> HomeError
+                (nactPhase, nprevPhase) = homeGotError actPhase prevPhase
+            in
+            {newModel | status = Home nactPhase, prevStatus = Home nprevPhase}
+        Project phase ->
+            --
+            -- TODO : finaliser cette partie
+            --
+            model
+            --
+
+-- MODEL
+
+type Answer
+    = AError String
+    | Connected (Result JD.Error Token)
+    | Unconnected
+
+type alias ProjectInfo =
+    { fileId : FileId
+    , name : String
+    }
+
+type alias ProjectData =
+    { info : ProjectInfo
+    --
+    -- TODO : ajout des champs propre au projet
+    --
+    }
+
+projectEmpty : ProjectData
+projectEmpty =
+    ProjectData (ProjectInfo "" "")
+
+type Question
+    = AskInit
+    | AskLogIn
+    | AskLogOut
+
+type ShowErr
+    = ErrYes String
+    | ErrNo
+
+type Status
+    = Connecting
+    | LogIn
+    | Home HomePhase
+    | Project ProjectPhase
+
+type alias Model =
+    { status : Status
+    , prevStatus : Status
+    --, api_key : ApiKey
+    --, token : Token
+    , apiCredentials : ApiCredentials
+    --
+    , withErr : ShowErr
+    , homeId : FileId
+    , projects : List ProjectInfo
+    , selected : ProjectData
+    --
+    -- TODO : testValue à supprimer, un jour
+    --
+    , testValue : String
+    --
+    }
+
+init : ApiKey -> (Model, Cmd Msg)
+init apiKey =
+    ( Model Connecting LogIn (ApiCredentials apiKey "") ErrNo "" [] projectEmpty ""
+    , ask "Starting")
+
 -- JSON ENCODE
 
 -- TODO : encoder pour les metadata et le format des fichiers créés / uploadés
@@ -67,7 +159,7 @@ decodeAnswer value =
 
 type alias ListProjects = List InfoFile
 
-decodeReadHome : Decoder (List InfoFile)
+decodeReadHome : Decoder ListProjects
 decodeReadHome =
     field "projects" (list decodeInfoFile)
 
@@ -86,14 +178,45 @@ decodeTest : Decoder (List String)
 decodeTest =
     field "files" (list string)
 
-
--- API
-
-makeRequestModel : HttpAction -> FileSelector -> Model -> Cmd msg
-makeRequestModel action selector model =
-    makeRequest action selector model.token model.api_key
-
 -- UPDATE
+
+type Msg
+    = Asking Question
+    | ReceptionData JE.Value
+    --
+    -- TODO : est-ce que ces messages sont toujours valides ?
+    --
+    | GetListFiles (Result Http.Error (List InfoFile))
+    | GetCreateFile (Result Http.Error String)
+    | GetReadHome (Result Http.Error (List InfoFile))
+    --
+    --| GetUpdateFile
+    --| GetDeleteFile
+    --
+    --
+    | GetReadProject (Result Http.Error String)
+    --
+    --
+    --
+    | AddProject
+    --
+    | CancelProject
+    --
+    | CreateProject
+    --
+    | HomeRetry
+    --
+    -- TODO : la liste des messages continue
+    --
+    | TestList
+    | TestCreate
+    | TestRead
+    | TestDelete
+    | TestRepList (Result Http.Error (List InfoFile))
+    | TestRepString (Result Http.Error String)
+    | TestRepValue (Result Http.Error JD.Value)
+    | TestChange String
+    --
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
@@ -198,15 +321,20 @@ update msg model =
         -- TODO : après cette ligne ce trouve des fonctions de tests qui devraient disparaître à terme
         --
         TestList ->
-            (model, makeRequestModel ListFiles FSNone model)
+            --(model, makeRequestModel ListFiles FSNone model)
+            (model, apiGetListFiles FSNone TestRepList model.apiCredentials)
         TestCreate ->
-            (model, makeRequestModel CreateFile (FSCreate model.testValue True) model)
+            --(model, makeRequestModel CreateFile (FSCreate model.testValue True) model)
+            (model, apiCreateFile (FSCreate model.testValue "") TestRepString model.apiCredentials)
         TestRead ->
             (model, makeRequestModel ReadFile (FSRead model.testValue True) model)
         TestDelete ->
             (model, makeRequestModel DeleteFile (FSDelete model.testValue) model)
-        TestRep rep -> (model, Cmd.none)
-        TestChange value -> ({model | testValue = value}, Cmd.none)
+        TestRepList rep -> (model, Cmd.none)
+        TestRepString rep -> (model, Cmd.none)
+        TestRepValue rep -> (model, Cmd.none)
+        TestChange value ->
+            ({model | testValue = value}, Cmd.none)
 
 -- PORTS
 
@@ -233,13 +361,34 @@ view model =
             else []
     in
     { title = "Tracy"
-    , body = List.append deco_btn [
-        case model.status of
-            Connecting -> div [class "core waiter"] [text "Connexion en cours ..."]
-            LogIn -> viewLogIn model.withErr
-            Home phase -> viewHome model phase
-            Project phase -> viewProject model phase
-    ]}
+    , body = List.concat
+        deco_btn
+        [
+            let
+                diverror = viewError model.withErr
+            in
+            case model.status of
+                Connecting -> div [class "core waiter"] [text "Connexion en cours ..."]
+                LogIn -> viewLogIn model.withErr
+                --
+                -- TODO : viewHome risque de bien moins fonctionner maintenant
+                --
+                Home phase -> viewHome model phase
+                --
+                Project phase -> viewProject model phase
+                --
+        ]
+        --
+        -- TODO : div avec tous les éléments pour les tests
+        --
+        [div [] [
+            button [onClick TestList] [text "List"]
+            , button [onClick TestRead] [text "Read"]
+            , button [onClick TestCreate] [text "Create"]
+            , input [value model.testValue, onInput TestChange, style "width" "250px"] []
+            , button [onClick TestDelete] [text "Delete"]
+        ]]
+    }
 
 viewError : ShowErr -> Html Msg
 viewError withErr =
@@ -252,53 +401,6 @@ viewLogIn withErr =
     div [class "panel_connect"]
         [button [onClick (Asking AskLogIn), class "button"] [text "Connexion"]
         , viewError withErr
-        ]
-
-viewHome : Model -> HomePhase -> Html Msg
-viewHome model phase =
-    div [class "core"]
-        [ div [class "zone_status"]
-            (case phase of
-                HomeCheck -> [text "Vérification ..."]
-                HomeError ->
-                    [ span [class "error"] [text "Il y a eu un problème !"]
-                    , button [onClick HomeRetry, class "button"] [text "Réessayer"]
-                    ]
-                HomeInit -> [text "Initialisation ..."]
-                HomeGetInfo -> [text "Importation ..."]
-                HomeList ->
-                    [ span [] [text "Liste des Projets"]
-                    --
-                    , button [onClick AddProject] [text "Ajouter"]
-                    --
-                    ]
-                    --
-                    -- TODO : lister tous les projets
-                    --
-                    -- TODO : d'abord les boutons
-                    --
-                    -- TODO : puis la liste des projets
-                    --
-                --
-                -- TODO : ajouter les cas manquant
-                --
-                _ -> [text "another status"]
-                --
-            )
-        , viewError model.withErr
-        , div [] [
-            --
-            -- TODO : la liste des projets
-            --
-            -- TODO : test avec HTTP from elm
-            --
-            button [onClick TestList] [text "List"]
-            , button [onClick TestRead] [text "Read"]
-            , button [onClick TestCreate] [text "Create"]
-            , input [value model.testValue, onInput TestChange, style "width" "250px"] []
-            , button [onClick TestDelete] [text "Delete"]
-            --
-        ]
         ]
 
 viewProject : Model -> ProjectPhase -> Html Msg

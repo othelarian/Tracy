@@ -1,10 +1,10 @@
-module Api exposing (ApiKey, FileId, FileSelector, ApiAction, Token, httpErrorToString, api??? makeRequest)
+module Api exposing(ApiAction, ApiCredentials, ApiKey, InfoFile, FileId, FileSelector, Token, httpErrorToString, apiGetListFiles, apiCreateFile, apiReadFile, apiUpdateFile, apiDeleteFile, decodeInfoFile, makeRequest)
 
-import Http
 import Bytes.Encode as BE
 import Json.Decode as JD
 import Json.Decode exposing (Decoder, decodeValue, errorToString, field, int, list, string)
 import Json.Encode as JE
+import Http
 import Url
 import Url.Builder as UB
 
@@ -30,9 +30,19 @@ type ApiAction
 
 type alias FileId = String
 
+type alias InfoFile =
+    { fileId : FileId
+    , name : String
+    }
+
 type alias ApiKey = String
 
 type alias Token = String
+
+type alias ApiCredentials =
+    { apiKey : ApiKey
+    , token : Token
+    }
 
 type FileSelector
     = FSNone
@@ -85,11 +95,6 @@ prepareBytes name fun value =
 
 -- JSON DECODE
 
-type alias InfoFile =
-    { fileId : FileId
-    , name : String
-    }
-
 decodeInfoFile : Decoder InfoFile
 decodeInfoFile =
     JD.map2 InfoFile (field "id" string) (field "name" string)
@@ -108,23 +113,25 @@ decodeCreateFile =
 
 -- API REQUEST
 
-apiGetListFiles : FileSelector -> (Result Http.Error (List InfoFile) -> msg) -> Token -> ApiKey -> Cmd msg
-apiGetListFiles selector message token apiKey =
-    makeRequest ListFiles selector message decodeListFiles token apiKey
+apiGetListFiles : FileSelector -> (Result Http.Error (List InfoFile) -> msg) -> ApiCredentials -> Cmd msg
+apiGetListFiles selector message credentials =
+    makeRequest ListFiles selector message decodeListFiles credentials.token credentials.apiKey
 
-apiCreateFile : FileSelector -> (Result Http.Error String -> msg) -> Token -> ApiKey -> Cmd msg
-apiCreateFile selector message token apiKey =
-    makeRequest CreateFile selector message decodeCreateFile token apiKey
+apiCreateFile : FileSelector -> (Result Http.Error String -> msg) -> ApiCredentials -> Cmd msg
+apiCreateFile selector message credentials =
+    makeRequest CreateFile selector message decodeCreateFile credentials.token credentials.apiKey
 
---apiReadFile : FileSelector -> (Result Http.Error String -> msg) -> Token -> ApiKey -> Cmd msg
---apiReadFile selector message token apiKey =
---    makeRequest ReadFile selector message decodeReadFile token apiKey
+apiReadFile : FileSelector -> (Result Http.Error a -> msg) -> (Decoder a) -> ApiCredentials -> Cmd msg
+apiReadFile selector message decoder credentials =
+    makeRequest ReadFile selector message decoder credentials.token credentials.apiKey
 
---apiUpdateFile : FileSelector -> 
+apiUpdateFile : FileSelector -> (Result Http.Error JD.Value -> msg) -> ApiCredentials -> Cmd msg
+apiUpdateFile selector message credentials =
+    makeRequest UpdateFile selector message JD.value credentials.token credentials.apiKey
 
-apiDeleteFile : FileSelector -> (Result Http.Error JD.Value -> msg) -> Token -> ApiKey -> Cmd msg
-apiDeleteFile selector message token apiKey =
-    makeRequest DeleteFile selector message JD.value token apiKey
+apiDeleteFile : FileSelector -> (Result Http.Error JD.Value -> msg) -> ApiCredentials -> Cmd msg
+apiDeleteFile selector message credentials =
+    makeRequest DeleteFile selector message JD.value credentials.token credentials.apiKey
 
 -- MAIN REQUEST
 
