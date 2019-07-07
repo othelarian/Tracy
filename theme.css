@@ -6,12 +6,17 @@ body {
     margin: 0;
 }
 
+textarea {
+    resize: none;
+}
+
 .button {
     border: solid 1px #0099ff;
     border-radius: 10px;
     background: #0099ff;
     color: white;
     padding: 3px;
+    margin-right: 5px;
 }
 .button:hover {
     background: white;
@@ -35,6 +40,7 @@ body {
     width: 80%;
     min-width: 500px;
     position: relative;
+    padding-top: 31px;
 }
 
 .error {
@@ -60,6 +66,7 @@ div.error {
     right: 0;
     top: 0;
     text-align: center;
+    z-index: 1;
 }
 
 .waiter {
@@ -68,8 +75,12 @@ div.error {
 
 .zone_status {
     width: 60%;
+    height: 30px;
     font-weight: bold;
     font-size: 1.1rem;
+    position: absolute;
+    top: 0;
+    left: 0;
 }
 .zone_status button {
     float: right;

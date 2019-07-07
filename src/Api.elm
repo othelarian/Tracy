@@ -1,8 +1,24 @@
-module Api exposing(ApiAction, ApiCredentials, ApiKey, InfoFile, FileId, FileSelector, Token, httpErrorToString, apiGetListFiles, apiCreateFile, apiReadFile, apiUpdateFile, apiDeleteFile, decodeInfoFile, makeRequest)
+module Api exposing
+    ( ApiAction(..)
+    , ApiKey
+    , ApiCredentials
+    , InfoFile
+    , FileId
+    , FileSelector(..)
+    , Token
+    , httpErrorToString
+    , apiGetListFiles
+    , apiCreateFile
+    , apiReadFile
+    , apiUpdateFile
+    , apiDeleteFile
+    , decodeInfoFile
+    )
 
+import Array exposing (Array)
 import Bytes.Encode as BE
 import Json.Decode as JD
-import Json.Decode exposing (Decoder, decodeValue, errorToString, field, int, list, string)
+import Json.Decode exposing (Decoder, array, decodeValue, errorToString, field, int, string)
 import Json.Encode as JE
 import Http
 import Url
@@ -46,22 +62,15 @@ type alias ApiCredentials =
 
 type FileSelector
     = FSNone
-    --
-    | FSCreate String String -- TODO : il faut ajouter la structure de données
-    --
-    | FSRead FileId String -- TODO : il faut ajouter une structure de capture, pour comprendre comment décoder les infos
-    --
-    | FSUpdate FileId String -- TODO : changer la string par une structure de données
-    --
+    | FSCreate String JE.Value
+    | FSRead FileId
+    | FSUpdate FileId JE.Value
     | FSDelete FileId
 
 -- PREPARE
 
 prepareMetadata : FileSelector -> String
 prepareMetadata selector =
-    --
-    -- TODO : il va falloir rendre cette structure générique
-    --
     let
         base = "{'parents':['appDataFolder'],'mimeType':'application/json','name':'"
     in
@@ -71,23 +80,9 @@ prepareMetadata selector =
 
 prepareMedia : FileSelector -> String
 prepareMedia selector =
-    --
-    -- TODO : cette fonction n'est pas générique, il va falloir changer tout ça
-    --
-    ""
-    --
-    {-
     case selector of
-        FSCreate _ isProject ->
-            if isProject then
-                "{'name':'new project'}"
-            else
-                "{'projects':[]}"
-        --
-        -- TODO : cas du update à traiter ici
-        --
+        FSCreate _ value -> JE.encode 0 value
         _ -> ""
-    -}
 
 prepareBytes : String -> (FileSelector -> String) -> FileSelector -> Http.Part
 prepareBytes name fun value =
@@ -99,21 +94,17 @@ decodeInfoFile : Decoder InfoFile
 decodeInfoFile =
     JD.map2 InfoFile (field "id" string) (field "name" string)
 
-decodeListFiles : Decoder (List InfoFile)
+decodeListFiles : Decoder (Array InfoFile)
 decodeListFiles =
-    field "files" (list decodeInfoFile)
+    field "files" (array decodeInfoFile)
 
 decodeCreateFile : Decoder String
 decodeCreateFile =
     field "id" string
 
--- TODO : decodeReadFile ? ou alors il est fourni à travers l'api ?
-
--- TODO : pas besoin de decoder pour le delete, mais pour l'update ?
-
 -- API REQUEST
 
-apiGetListFiles : FileSelector -> (Result Http.Error (List InfoFile) -> msg) -> ApiCredentials -> Cmd msg
+apiGetListFiles : FileSelector -> (Result Http.Error (Array InfoFile) -> msg) -> ApiCredentials -> Cmd msg
 apiGetListFiles selector message credentials =
     makeRequest ListFiles selector message decodeListFiles credentials.token credentials.apiKey
 
@@ -151,7 +142,7 @@ makeRequest action selector message decoder token apiKey =
                 (let
                     path = ["drive", "v3", "files"]
                     fileId = case selector of
-                        FSRead id _ -> id
+                        FSRead id -> id
                         FSUpdate id _ -> id
                         FSDelete id -> id
                         _ -> ""
