@@ -98,8 +98,8 @@ decodeListFiles : Decoder (Array InfoFile)
 decodeListFiles =
     field "files" (array decodeInfoFile)
 
-decodeCreateFile : Decoder String
-decodeCreateFile =
+decodeUploadFile : Decoder String
+decodeUploadFile =
     field "id" string
 
 -- API REQUEST
@@ -110,15 +110,15 @@ apiGetListFiles selector message credentials =
 
 apiCreateFile : FileSelector -> (Result Http.Error String -> msg) -> ApiCredentials -> Cmd msg
 apiCreateFile selector message credentials =
-    makeRequest CreateFile selector message decodeCreateFile credentials.token credentials.apiKey
+    makeRequest CreateFile selector message decodeUploadFile credentials.token credentials.apiKey
 
 apiReadFile : FileSelector -> (Result Http.Error a -> msg) -> (Decoder a) -> ApiCredentials -> Cmd msg
 apiReadFile selector message decoder credentials =
     makeRequest ReadFile selector message decoder credentials.token credentials.apiKey
 
-apiUpdateFile : FileSelector -> (Result Http.Error JD.Value -> msg) -> ApiCredentials -> Cmd msg
+apiUpdateFile : FileSelector -> (Result Http.Error String -> msg) -> ApiCredentials -> Cmd msg
 apiUpdateFile selector message credentials =
-    makeRequest UpdateFile selector message JD.value credentials.token credentials.apiKey
+    makeRequest UpdateFile selector message decodeUploadFile credentials.token credentials.apiKey
 
 apiDeleteFile : FileSelector -> (Result Http.Error JD.Value -> msg) -> ApiCredentials -> Cmd msg
 apiDeleteFile selector message credentials =
@@ -131,9 +131,7 @@ makeRequest action selector message decoder token apiKey =
     Http.request
         { method = case action of
             CreateFile -> "POST"
-            --
-            UpdateFile -> "" -- TODO : TEST à faire, normalement "PATCH"
-            --
+            UpdateFile -> "PATCH"
             DeleteFile -> "DELETE"
             _ -> "GET"
         , headers = [(Http.header "authorization" ("Bearer "++token))]
@@ -160,9 +158,7 @@ makeRequest action selector message decoder token apiKey =
                     ListFiles -> (UB.string "spaces" "appDataFolder")::key
                     CreateFile -> (UB.string "alt" "json")::(UB.string "uploadType" "multipart")::key
                     ReadFile -> (UB.string "alt" "media")::key
-                    --
-                    -- TODO : ajouter les élément manquant, si besoin
-                    --
+                    UpdateFile -> (UB.string "alt" "json")::(UB.string "uploadType" "multipart")::key
                     _ -> []
                 )
             )

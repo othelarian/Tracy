@@ -38,7 +38,7 @@ textarea {
 .core {
     margin: auto;
     width: 80%;
-    min-width: 500px;
+    min-width: 320px;
     position: relative;
     padding-top: 31px;
 }
@@ -75,12 +75,15 @@ div.error {
 
 .zone_status {
     width: 60%;
+    max-width: 300px;
     height: 30px;
     font-weight: bold;
     font-size: 1.1rem;
     position: absolute;
     top: 0;
     left: 0;
+    background: white;
+    border-bottom: solid #ddd 1px;
 }
 .zone_status button {
     float: right;

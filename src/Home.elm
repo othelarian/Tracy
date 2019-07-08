@@ -1,15 +1,16 @@
 module Home exposing(Model, Msg(..), init, update, view)
 
 import Api exposing (..)
-import Project exposing (ProjectInfo)
+import Project exposing (ProjectInfo, encodeNewProject)
 
 import Array exposing (Array)
 import Html exposing (Html, button, div, input, label, p, span, text, textarea)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput)
+import Http
 import Json.Decode as JD
 import Json.Encode as JE
-import Http
+import Time
 
 -- MODEL
 
@@ -26,11 +27,9 @@ type HomePhase
     | Initializing
     | Filling
     | Listing Adding
-    --
-    | Creating
-    --
+    | Creating String
+    | Updating
     | Removing
-    --
 
 type alias ArrayProjects = Array InfoFile
 
@@ -57,15 +56,60 @@ decodeReadHome : JD.Decoder ArrayProjects
 decodeReadHome =
     JD.field "projects" (JD.array decodeInfoFile)
 
+-- JSON ENCODE
+
+encodeHome : Model -> JE.Value
+encodeHome model =
+    --
+    -- TODO : finaliser l'encodage en json du home
+    --
+    JE.object [ ("projects", JE.array (JD.map2 InfoFile (field "id" string) (field "name" string)) model.projects) ]
+
 -- HANDLERS
 
 handleInit : Model -> (Model, Cmd Msg)
 handleInit model =
     let
-        jsonValue = JE.object [ ("projects", JE.list JE.string []) ]
+        jsonValue = JE.object [ ("projects", JE.array JE.string []) ]
     in
     ({model | phase = Initializing}
     , apiCreateFile (FSCreate "tracy" jsonValue) CreateInit model.apiCredentials)
+
+handleNewProject : Model -> (Model, Cmd Msg)
+handleNewProject model =
+    let
+        getMonthNumber : Time.Month -> String
+        getMonthNumber month =
+            case month of
+                Time.Jan -> "01"
+                Time.Feb -> "02"
+                Time.Mar -> "03"
+                Time.Apr -> "04"
+                Time.May -> "05"
+                Time.Jun -> "06"
+                Time.Jul -> "07"
+                Time.Aug -> "08"
+                Time.Sep -> "09"
+                Time.Oct -> "10"
+                Time.Nov -> "11"
+                Time.Dec -> "12"
+        getDoubleDigit : Int -> String
+        getDoubleDigit number =
+            if number < 9 then "0"++(String.fromInt number) else String.fromInt number
+        time = Time.millisToPosix 0
+        timeName =
+            (String.fromInt (Time.toYear Time.utc time))
+            ++ (getMonthNumber (Time.toMonth Time.utc time))
+            ++ (getDoubleDigit (Time.toDay Time.utc time))
+            ++ (getDoubleDigit (Time.toHour Time.utc time))
+            ++ (getDoubleDigit (Time.toMinute Time.utc time))
+            ++ (getDoubleDigit (Time.toSecond Time.utc time))
+        newName = "project_"++timeName
+        jsonValue = encodeNewProject model.newProjectName model.newProjectDesc
+    in
+    ({model | phase = Creating}
+    , apiCreateFile (FSCreate newName jsonValue) ValidateProject model.apiCredentials)
+    
 
 handleError : Model -> HomePhase -> Http.Error -> (Model, Cmd Msg)
 handleError model phase error =
@@ -78,12 +122,14 @@ type Msg
     | Retry HomeError
     | CreateInit (Result Http.Error String)
     | FillInfo (Result Http.Error ArrayProjects)
+    --
+    | UpdateInfo (Result Http.Error String)
+    --
     | AddProject
     | OnNameChange String
     | OnDescChange String
     | CancelProject
     | CreateProject
-    --
     | ValidateProject (Result Http.Error String)
     --
     | RemoveProject
@@ -122,7 +168,7 @@ update msg model =
                     ({model | phase = Filling}
                     , apiReadFile (FSRead model.homeId) FillInfo decodeReadHome model.apiCredentials)
                 --
-                Creating ->
+                Creating _ ->
                     --
                     -- TODO : valider l'idée que c'est le create qui plante
                     --
@@ -140,29 +186,39 @@ update msg model =
                 Err error -> handleError model Initializing error
         FillInfo result ->
             case result of
-                Ok listProjects -> ({model | projects = listProjects, phase = Listing False}, Cmd.none)
+                Ok listProjects ->
+                    --
+                    -- TODO : sorting the list
+                    --
+                    ({model | projects = listProjects, phase = Listing False}, Cmd.none)
                 Err error -> handleError model Filling error
-        AddProject ->
-            ({model | phase = Listing True}, Cmd.none)
-        OnNameChange name ->
-            ({model | newProjectName = name}, Cmd.none)
-        OnDescChange desc ->
-            ({model | newProjectDesc = desc}, Cmd.none)
-        CancelProject ->
-            ({model | phase = Listing False}, Cmd.none)
-        CreateProject ->
+        UpdateInfo result ->
             --
-            -- TODO : créer le nouveau projet, et se rendre dessus
-            -- TODO : ça passe ensuite dans ValidateProject
+            -- TODO : valider la mise à jour de tracy.json
+            --
+            -- TODO : ouvrir le projet avec la vue projet si c'est une création
             --
             (model, Cmd.none)
             --
+        AddProject -> ({model | phase = Listing True}, Cmd.none)
+        OnNameChange name -> ({model | newProjectName = name}, Cmd.none)
+        OnDescChange desc -> ({model | newProjectDesc = desc}, Cmd.none)
+        CancelProject -> ({model | phase = Listing False}, Cmd.none)
+        CreateProject -> handleNewProject model
         ValidateProject result ->
-            --
-            -- TODO : validation de la création du nouveau projet
-            --
-            (model, Cmd.none)
-            --
+            case result of
+                Ok fileId ->
+                    let
+                        infoFile = InfoFile fileId model.newProjectName
+                        newArrayProjects = Array.push infoFile model.projects
+                    in
+                    --
+                    -- TODO : sauvegarder la création du projet dans tracy.json
+                    --
+                    ({model | projects = newArrayProjects, newProjectName = "", newProjectDesc = ""}
+                    , apiUpdateFile (FSUpdate model.homeId ) UpdateInfo model.apiCredentials)
+                    --
+                Err error -> handleError model model.phase error
         RemoveProject ->
             --
             -- TODO : comment faire pour la suppression ?
@@ -191,7 +247,7 @@ view model  =
                             [ span [] [text "Liste des Projets"]
                             , button [onClick AddProject, class "button_topsnap"] [text "Ajouter"]
                             ]
-                Creating -> [text "Création du projet en cours ..."]
+                Creating _ -> [text "Création du projet en cours ..."]
                 Removing -> [text "Suppression du projet ..."]
             )
         , (case model.phase of

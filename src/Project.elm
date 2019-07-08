@@ -1,4 +1,4 @@
-module Project exposing(Model, Msg, ProjectInfo, init, update, view)
+module Project exposing(Model, Msg, ProjectInfo, encodeNewProject, init, update, view)
 
 import Api exposing (ApiCredentials, FileId)
 
@@ -6,6 +6,7 @@ import Html exposing (Html, div, text)
 import Html.Attributes exposing (..)
 import Json.Decode as JD
 import Json.Decode exposing (Decoder, field, string)
+import Json.Encode as JE
 
 -- MODEL
 
@@ -37,6 +38,18 @@ decodeReadProject =
     field "name" string
     --
 
+-- JSON ENCODE
+
+encodeNewProject : String -> String -> JE.Value
+encodeNewProject name desc =
+    JE.object
+        [ ("name", JE.string name)
+        , ("desc", JE.string desc)
+        --
+        -- TODO : ajouter les champs manquants
+        --
+        ]
+
 -- UPDATE
 
 type Msg
@@ -56,7 +69,16 @@ update msg model =
 
 view : Model -> Html Msg
 view model =
-    --
-    -- TODO : tout reste à faire
-    --
-    div [] [text "page de projet"]
+    div [class "core"]
+        [ div [class "zone_status"]
+            --
+            -- TODO : transformer la list ci-dessous en un case pour la zone de statut
+            --
+            []
+            --
+        , --
+            --
+            -- TODO : ici se passe la construction de la page
+            --
+            div [] ["(page de gestion d'un projet"]
+            --
