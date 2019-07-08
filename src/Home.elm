@@ -1,7 +1,7 @@
 module Home exposing(Model, Msg(..), init, update, view)
 
 import Api exposing (..)
-import Project exposing (ProjectInfo, encodeNewProject)
+import Project exposing (ProjectInfo, encodeNewProject, init)
 
 import Array exposing (Array)
 import Html exposing (Html, button, div, input, label, p, span, text, textarea)
@@ -10,6 +10,7 @@ import Html.Events exposing (onClick, onInput)
 import Http
 import Json.Decode as JD
 import Json.Encode as JE
+import Task
 import Time
 
 -- MODEL
@@ -28,7 +29,7 @@ type HomePhase
     | Filling
     | Listing Adding
     | Creating String
-    | Updating
+    | Updating JE.Value 
     | Removing
 
 type alias ArrayProjects = Array InfoFile
@@ -60,23 +61,28 @@ decodeReadHome =
 
 encodeHome : Model -> JE.Value
 encodeHome model =
-    --
-    -- TODO : finaliser l'encodage en json du home
-    --
-    JE.object [ ("projects", JE.array (JD.map2 InfoFile (field "id" string) (field "name" string)) model.projects) ]
+    let
+        encodeInfoFile : InfoFile -> JE.Value
+        encodeInfoFile infoFile =
+            JE.object
+                [ ("id", JE.string infoFile.fileId)
+                , ("name", JE.string infoFile.name)
+                ]
+    in
+    JE.object [ ("projects", JE.array encodeInfoFile model.projects) ]
 
 -- HANDLERS
 
 handleInit : Model -> (Model, Cmd Msg)
 handleInit model =
     let
-        jsonValue = JE.object [ ("projects", JE.array JE.string []) ]
+        jsonValue = JE.object [ ("projects", JE.array JE.string Array.empty) ]
     in
     ({model | phase = Initializing}
     , apiCreateFile (FSCreate "tracy" jsonValue) CreateInit model.apiCredentials)
 
-handleNewProject : Model -> (Model, Cmd Msg)
-handleNewProject model =
+handleNewNameProject : String
+handleNewNameProject =
     let
         getMonthNumber : Time.Month -> String
         getMonthNumber month =
@@ -104,11 +110,19 @@ handleNewProject model =
             ++ (getDoubleDigit (Time.toHour Time.utc time))
             ++ (getDoubleDigit (Time.toMinute Time.utc time))
             ++ (getDoubleDigit (Time.toSecond Time.utc time))
-        newName = "project_"++timeName
+    in
+    "project_"++timeName
+
+handleNewProject : Model -> Maybe String -> (Model, Cmd Msg)
+handleNewProject model maybeName =
+    let
+        newFileName = case maybeName of
+            Just existingName -> existingName
+            Nothing -> handleNewNameProject
         jsonValue = encodeNewProject model.newProjectName model.newProjectDesc
     in
-    ({model | phase = Creating}
-    , apiCreateFile (FSCreate newName jsonValue) ValidateProject model.apiCredentials)
+    ({model | phase = Creating newFileName}
+    , apiCreateFile (FSCreate newFileName jsonValue) ValidateProject model.apiCredentials)
     
 
 handleError : Model -> HomePhase -> Http.Error -> (Model, Cmd Msg)
@@ -117,13 +131,15 @@ handleError model phase error =
 
 -- UPDATE
 
+type alias StayHome = Bool
+
 type Msg
     = Check (Result Http.Error (Array InfoFile))
     | Retry HomeError
     | CreateInit (Result Http.Error String)
     | FillInfo (Result Http.Error ArrayProjects)
     --
-    | UpdateInfo (Result Http.Error String)
+    | UpdateInfo StayHome (Result Http.Error String)
     --
     | AddProject
     | OnNameChange String
@@ -132,8 +148,11 @@ type Msg
     | CreateProject
     | ValidateProject (Result Http.Error String)
     --
+    | OpenProject
+    --
     | RemoveProject
     --
+    | GoToProject (FileId, ApiCredentials)
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
@@ -167,16 +186,17 @@ update msg model =
                 Filling ->
                     ({model | phase = Filling}
                     , apiReadFile (FSRead model.homeId) FillInfo decodeReadHome model.apiCredentials)
-                --
-                Creating _ ->
+                Creating existingName ->  handleNewProject model (Just existingName)
+                Updating jsonValue ->
+                    ({model | phase = Updating jsonValue}
+                    , apiUpdateFile (FSUpdate model.homeId jsonValue) (UpdateInfo False) model.apiCredentials)
+                Removing ->
                     --
-                    -- TODO : valider l'idée que c'est le create qui plante
+                    -- TODO : gestion du cas de suppression qui n'a pas fonctionné
                     --
                     (model, Cmd.none)
                     --
-                --
-                -- TODO : il faut pouvoir réessayer d'autre phase
-                --
+                    --
                 _ -> (model, Cmd.none)
         CreateInit result ->
             case result of
@@ -192,39 +212,51 @@ update msg model =
                     --
                     ({model | projects = listProjects, phase = Listing False}, Cmd.none)
                 Err error -> handleError model Filling error
-        UpdateInfo result ->
-            --
-            -- TODO : valider la mise à jour de tracy.json
-            --
-            -- TODO : ouvrir le projet avec la vue projet si c'est une création
-            --
-            (model, Cmd.none)
-            --
+        UpdateInfo stay result ->
+            case result of
+                Ok _ ->
+                    case stay of
+                        True -> ({model | phase = Listing False}, Cmd.none)
+                        False ->
+                            let
+                                lastIndex = (Array.length model.projects) - 1
+                                lastProject =
+                                    case (Array.get lastIndex model.projects) of
+                                        Just infoFile -> infoFile
+                                        Nothing -> InfoFile "" ""
+                            in
+                            (model, Task.perform GoToProject (Task.succeed (lastProject.fileId, model.apiCredentials)))
+                Err error -> handleError model model.phase error
         AddProject -> ({model | phase = Listing True}, Cmd.none)
         OnNameChange name -> ({model | newProjectName = name}, Cmd.none)
         OnDescChange desc -> ({model | newProjectDesc = desc}, Cmd.none)
         CancelProject -> ({model | phase = Listing False}, Cmd.none)
-        CreateProject -> handleNewProject model
+        CreateProject -> handleNewProject model Nothing
         ValidateProject result ->
             case result of
                 Ok fileId ->
                     let
                         infoFile = InfoFile fileId model.newProjectName
                         newArrayProjects = Array.push infoFile model.projects
+                        newModel = {model | projects = newArrayProjects}
+                        jsonValue = encodeHome newModel
                     in
-                    --
-                    -- TODO : sauvegarder la création du projet dans tracy.json
-                    --
-                    ({model | projects = newArrayProjects, newProjectName = "", newProjectDesc = ""}
-                    , apiUpdateFile (FSUpdate model.homeId ) UpdateInfo model.apiCredentials)
-                    --
+                    ({newModel | newProjectName = "", newProjectDesc = "", phase = Updating jsonValue}
+                    , apiUpdateFile (FSUpdate model.homeId jsonValue) (UpdateInfo False) model.apiCredentials)
                 Err error -> handleError model model.phase error
+        OpenProject ->
+            --
+            -- TODO : ouverture d'un projet lors d'un clic sur son nom
+            --
+            (model, Cmd.none)
+            --
         RemoveProject ->
             --
             -- TODO : comment faire pour la suppression ?
             --
             (model, Cmd.none)
             --
+        GoToProject _ -> (model, Cmd.none)
 
 -- VIEW
 
@@ -248,6 +280,7 @@ view model  =
                             , button [onClick AddProject, class "button_topsnap"] [text "Ajouter"]
                             ]
                 Creating _ -> [text "Création du projet en cours ..."]
+                Updating _ -> [text "Mise à jour de la racine ..."]
                 Removing -> [text "Suppression du projet ..."]
             )
         , (case model.phase of

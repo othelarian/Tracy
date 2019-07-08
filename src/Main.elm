@@ -163,7 +163,15 @@ update msg model =
                             ( Home (Home.init newCredentials)
                             , Cmd.map HomeMsg (apiGetListFiles FSNone Home.Check newCredentials))
         (HomeMsg subMsg, Home home) ->
-            updateWith Home HomeMsg (Home.update subMsg home)
+            case subMsg of
+                Home.GoToProject (fileId, credentials) ->
+                    --
+                    -- TODO : interception de la sortie du Home pour aller vers le Project
+                    -- TODO : finaliser en déclenchant la récupération des infos du projets (Reading phase)
+                    --
+                    (Project (Project.init credentials), Cmd.none)
+                    --
+                _ -> updateWith Home HomeMsg (Home.update subMsg home)
         (ProjectMsg subMsg, Project project) ->
             updateWith Project ProjectMsg (Project.update subMsg project)
         --

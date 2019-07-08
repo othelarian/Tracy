@@ -80,5 +80,6 @@ view model =
             --
             -- TODO : ici se passe la construction de la page
             --
-            div [] ["(page de gestion d'un projet"]
+            div [] [text "(page de gestion d'un projet)"]
             --
+        ]
