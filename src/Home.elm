@@ -41,15 +41,13 @@ type alias Model =
     , phase : HomePhase
     , newProjectName : String
     , newProjectDesc : String
-    --
-    --
     , testValue : String
-    --
+    , testShow : Bool
     }
 
-init : ApiCredentials -> Model
-init apiCredentials =
-    Model apiCredentials "" Array.empty Checking "" "" ""
+init : ApiCredentials -> Bool -> Model
+init apiCredentials testShow =
+    Model apiCredentials "" Array.empty Checking "" "" "" testShow
 
 -- JSON DECODE
 
@@ -138,9 +136,7 @@ type Msg
     | Retry HomeError
     | CreateInit (Result Http.Error String)
     | FillInfo (Result Http.Error ArrayProjects)
-    --
     | UpdateInfo StayHome (Result Http.Error String)
-    --
     | AddProject
     | OnNameChange String
     | OnDescChange String

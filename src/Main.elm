@@ -10,6 +10,7 @@ import Browser.Navigation as Nav
 import Html exposing (Html, button, div, h1, input, p, span, text)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput)
+import Html.Extra as Html
 import Http
 import Json.Decode as JD
 import Json.Decode exposing (Decoder, array, decodeValue, errorToString, field, int, string)
@@ -17,9 +18,11 @@ import Json.Encode as JE
 
 
 -- WIP : listing des projets
--- WIP : ajouter des projets
--- TODO : supprimer des projets
+-- WIP : supprimer des projets
 
+-- TODO : faire en sorte de pouvoir afficher / cacher les tests
+
+-- TODO : pouvoir sortir de Project pour retourner vers le Home
 -- TODO : page d'accueil d'un projet, avec son nom et sa description
 -- TODO : faire en sorte de pouvoir modifier le nom et la description
 
@@ -45,15 +48,13 @@ type GuestPhase
 type alias GuestModel =
     { apiCredentials : ApiCredentials
     , phase : GuestPhase
-    --
-    --
     , testValue : String
-    --
+    , testShow : Bool
     }
 
 guestModel : ApiCredentials -> GuestModel
 guestModel apiCredentials =
-    GuestModel apiCredentials (Login Nothing) ""
+    GuestModel apiCredentials (Login Nothing) "" True
 
 type Model
     = Guest GuestModel
@@ -67,6 +68,21 @@ init apiKey =
         model = guestModel credentials
     in
     (Guest {model | phase = Connecting}, ask "Starting")
+
+-- HANDLERS
+
+type alias GenericModel =
+    { apiCredentials : ApiCredentials
+    , testValue : String
+    , testShow : Bool
+    }
+
+getGenericModel : Model -> GenericModel
+getGenericModel model =
+    case model of
+        Guest guest -> GenericModel guest.apiCredentials guest.testValue guest.testShow
+        Home home -> GenericModel home.apiCredentials home.testValue home.testShow
+        Project project -> GenericModel project.apiCredentials project.testValue project.testShow
 
 -- JSON DECODE
 
@@ -106,9 +122,8 @@ type Msg
     | ReceptionData JE.Value
     | HomeMsg Home.Msg
     | ProjectMsg Project.Msg
-    --
-    -- ############
-    --
+    | TestCom String
+    | TestShow
     | TestList
     | TestCreate
     | TestRead
@@ -117,7 +132,6 @@ type Msg
     | TestRepString (Result Http.Error String)
     | TestRepValue (Result Http.Error JD.Value)
     | TestChange String
-    --
 
 updateWith : (subModel -> Model) -> (subMsg -> Msg) -> (subModel, Cmd subMsg) -> (Model, Cmd Msg)
 updateWith toModel toMsg (subModel, subCmd) =
@@ -133,34 +147,31 @@ update msg model =
         (ReceptionData value, _) ->
             let
                 answer = decodeAnswer value
-                credentials = case model of
-                    Guest guest -> guest.apiCredentials
-                    Home home -> home.apiCredentials
-                    Project project -> project.apiCredentials
+                genModel = getGenericModel model
             in
             case answer of
                 AError info ->
                     let
-                        newGuest = guestModel credentials
+                        newGuest = guestModel genModel.apiCredentials
                     in
                     (Guest {newGuest | phase = Failed info}, Cmd.none)
                 Unconnected ->
                     let
-                        newCredentials = ApiCredentials credentials.apiKey ""
+                        newCredentials = ApiCredentials genModel.apiCredentials.apiKey ""
                     in
                     (Guest (guestModel newCredentials), Cmd.none)
                 Connected resToken ->
                     case resToken of
                         Err error ->
                             let
-                                newGuest = guestModel credentials
+                                newGuest = guestModel genModel.apiCredentials
                             in
                             (Guest {newGuest | phase = Failed (errorToString error)}, Cmd.none)
                         Ok token ->
                             let
-                                newCredentials = ApiCredentials credentials.apiKey token
+                                newCredentials = ApiCredentials genModel.apiCredentials.apiKey token
                             in
-                            ( Home (Home.init newCredentials)
+                            ( Home (Home.init newCredentials genModel.testShow)
                             , Cmd.map HomeMsg (apiGetListFiles FSNone Home.Check newCredentials))
         (HomeMsg subMsg, Home home) ->
             case subMsg of
@@ -169,14 +180,25 @@ update msg model =
                     -- TODO : interception de la sortie du Home pour aller vers le Project
                     -- TODO : finaliser en déclenchant la récupération des infos du projets (Reading phase)
                     --
-                    (Project (Project.init credentials), Cmd.none)
+                    (Project (Project.init credentials home.testShow), Cmd.none)
                     --
                 _ -> updateWith Home HomeMsg (Home.update subMsg home)
         (ProjectMsg subMsg, Project project) ->
+            --
+            -- TODO : interception de la sortie de Project pour aller vers le Home
+            --
             updateWith Project ProjectMsg (Project.update subMsg project)
-        --
-        -- TODO : après cette ligne ce trouve des fonctions de tests qui devraient disparaître à terme
-        --
+        (TestCom testMsg, _) ->
+            let
+                genModel = getGenericModel model
+            in
+            case testMsg of
+                "toggle" ->
+                    case model of
+                        Guest data -> (Guest {data | testShow = not genModel.testShow}, Cmd.none)
+                        Home data -> (Home {data | testShow = not genModel.testShow}, Cmd.none)
+                        Project data -> (Project {data | testShow = not genModel.testShow}, Cmd.none)
+                _ -> (model, Cmd.none)
         (TestList, _) ->
             let (creds, _) = fromModelTest model in (model, apiGetListFiles FSNone TestRepList creds)
         (TestCreate, _) ->
@@ -202,44 +224,51 @@ update msg model =
                 Guest data -> (Guest {data | testValue = value}, Cmd.none)
                 Home data -> (Home {data | testValue = value}, Cmd.none)
                 Project data -> (Project {data | testValue = value}, Cmd.none)
-        --
-        --
         (_, _) -> (model, Cmd.none)
 
 -- PORTS
 
 port ask : String -> Cmd msg
 port received : (JE.Value -> msg) -> Sub msg
+port testCom : (String -> msg) -> Sub msg
 
 -- SUBS
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    received ReceptionData
+    Sub.batch
+        [ received ReceptionData
+        , testCom TestCom
+        , case model of
+            --
+            -- TODO : normalement, Project devrait avoir un truc avec la subscription
+            --
+            _ -> Sub.none
+        ]
 
 -- VIEW
 
 view : Model -> Browser.Document Msg
 view model =
     let
-        getDecoBtn : List (Html Msg)
+        getDecoBtn : Html Msg
         getDecoBtn =
-            [div [class "panel_deconnect"] [button
+            div [class "panel_deconnect"] [button
                 [onClick (Asking AskLogOut), class "button_topsnap"]
                 [text "Déconnexion"]
-                ]]
+                ]
         decoBtn = case model of
             Guest guest ->
                 case guest.phase of
-                    Login _ -> []
-                    Connecting -> []
+                    Login _ -> Html.nothing
+                    Connecting -> Html.nothing
                     _ -> getDecoBtn
             _ -> getDecoBtn
+        genModel = getGenericModel model
     in
     { title = "Tracy"
-    , body = List.concat
-        [ decoBtn
-        , [ case model of
+    , body =
+        decoBtn::(case model of
                 Guest guest ->
                     case guest.phase of
                         Connecting -> div [class "core waiter"] [text "Connexion en cours ..."]
@@ -248,7 +277,7 @@ view model =
                                 [ button [onClick (Asking AskLogIn), class "button"] [text "Connexion"]
                                 , case maybe of
                                     Just error -> div [class "error"] [text error]
-                                    Nothing -> div [class "hide"] []
+                                    Nothing -> Html.nothing
                                 ]
                         Failed error ->
                             div [class "core error"]
@@ -258,28 +287,8 @@ view model =
                                 ]
                 Home home -> Html.map HomeMsg (Home.view home)
                 Project project -> Html.map ProjectMsg (Project.view project)
-        ]
-        --
-        -- TODO : div avec tous les éléments pour les tests
-        --
-        , [
-            div [] [
-                button [onClick TestList] [text "List"]
-                , button [onClick TestRead] [text "Read"]
-                , button [onClick TestCreate] [text "Create"]
-                , let
-                    testValue = case model of
-                        Guest data -> data.testValue
-                        Home data -> data.testValue
-                        Project data -> data.testValue
-                    in
-                    input [value testValue, onInput TestChange, style "width" "250px"] []
-                , button [onClick TestDelete] [text "Delete"]
-            ]]
-        ]
+        )::(Html.viewIfLazy genModel.testShow (viewTest genModel))::[]
     }
-
-
 
 -- TEST FUNCTIONS
 
@@ -297,3 +306,13 @@ fromModelTest model =
         Guest data -> (data.apiCredentials, data.testValue)
         Home data -> (data.apiCredentials, data.testValue)
         Project data -> (data.apiCredentials, data.testValue)
+
+viewTest : GenericModel -> () -> Html Msg
+viewTest genModel _ =
+    div [class "zone_test"] [
+        button [onClick TestList] [text "List"]
+        , button [onClick TestRead] [text "Read"]
+        , button [onClick TestCreate] [text "Create"]
+        , input [value genModel.testValue, onInput TestChange, style "width" "250px"] []
+        , button [onClick TestDelete] [text "Delete"]
+        ]

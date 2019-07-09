@@ -76,7 +76,7 @@ div.error {
 .zone_status {
     width: 60%;
     max-width: 300px;
-    height: 30px;
+    height: 25px;
     font-weight: bold;
     font-size: 1.1rem;
     position: absolute;
@@ -84,7 +84,16 @@ div.error {
     left: 0;
     background: white;
     border-bottom: solid #ddd 1px;
+    padding: 0 7px;
 }
 .zone_status button {
     float: right;
+}
+
+.zone_test {
+    width: 100%;
+    text-align: center;
+    margin: auto;
+    position: absolute;
+    bottom: 0;
 }

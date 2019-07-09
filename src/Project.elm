@@ -21,12 +21,12 @@ type alias Model =
     --
     --
     , testValue : String
-    --
+    , testShow : Bool
     }
 
-init : ApiCredentials -> Model
-init apiCredentials =
-    Model apiCredentials (ProjectInfo "" "") ""
+init : ApiCredentials -> Bool -> Model
+init apiCredentials testShow =
+    Model apiCredentials (ProjectInfo "" "") "" testShow
 
 -- JSON DECODE
 
