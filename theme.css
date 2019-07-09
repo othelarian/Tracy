@@ -35,12 +35,16 @@ textarea {
     color: #0099ff;
 }
 
+.centered {
+    text-align: center;
+}
+
 .core {
     margin: auto;
     width: 80%;
     min-width: 320px;
     position: relative;
-    padding-top: 31px;
+    padding-top: 50px;
 }
 
 .error {
@@ -78,10 +82,21 @@ div.error {
 
 .project_box {
     border: solid 2px #ddd;
+    padding: 7px;
 }
 
-.waiter {
-    text-align: center;
+.project_box > a {
+    font-weight: bold;
+    font-size: 1.2rem;
+    color: black;
+    cursor: pointer;
+}
+.project_box > a:hover {
+    text-decoration: underline;
+}
+
+.project_box > button {
+    float: right;
 }
 
 .zone_status {
@@ -107,6 +122,10 @@ div.error {
     margin: auto;
     position: absolute;
     bottom: 0;
+}
+
+.waiter {
+    text-align: center;
 }
 
 @media only screen and (max-width: 1150px) {

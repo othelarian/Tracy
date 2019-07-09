@@ -4,7 +4,7 @@ import Api exposing (..)
 import Project exposing (ProjectInfo, encodeNewProject, init)
 
 import Array exposing (Array)
-import Html exposing (Html, button, div, input, label, p, span, text, textarea)
+import Html exposing (Html, a, button, div, input, label, p, span, text, textarea)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput)
 import Http
@@ -12,6 +12,8 @@ import Json.Decode as JD
 import Json.Encode as JE
 import Random
 import Task
+
+import Debug
 
 -- MODEL
 
@@ -32,7 +34,7 @@ type HomePhase
     | Listing Adding
     | Creating String
     | Updating JE.Value 
-    | Removing Validation
+    | Removing Validation InfoFile
 
 type alias ArrayProjects = Array InfoFile
 
@@ -119,13 +121,9 @@ type Msg
     | CreateNameProject
     | CreateProject (List String)
     | ValidateProject (Result Http.Error String)
-    --
-    | OpenProject
-    --
-    | RemoveProject
-    --
-    | DeleteProject
-    --
+    | OpenProject FileId
+    | RemoveProject Validation InfoFile
+    | DeleteProject FileId
     | GoToProject (FileId, ApiCredentials)
 
 update : Msg -> Model -> (Model, Cmd Msg)
@@ -164,7 +162,7 @@ update msg model =
                 Updating jsonValue ->
                     ({model | phase = Updating jsonValue}
                     , apiUpdateFile (FSUpdate model.homeId jsonValue) (UpdateInfo False) model.apiCredentials)
-                Removing _ ->
+                Removing _ _ ->
                     --
                     -- TODO : gestion du cas de suppression qui n'a pas fonctionné
                     --
@@ -219,19 +217,24 @@ update msg model =
                     ({newModel | newProjectName = "", newProjectDesc = "", phase = Updating jsonValue}
                     , apiUpdateFile (FSUpdate model.homeId jsonValue) (UpdateInfo False) model.apiCredentials)
                 Err error -> handleError model model.phase error
-        OpenProject ->
+        OpenProject fileId ->
             --
             -- TODO : ouverture d'un projet lors d'un clic sur son nom
             --
             (model, Cmd.none)
             --
-        RemoveProject ->
-            --
-            -- TODO : demande de validation de la suppression du projet sélectionné
-            --
-            (model, Cmd.none)
-            --
-        DeleteProject ->
+        RemoveProject validation infoFile ->
+            case validation of
+                False -> ({model | phase = Removing False infoFile}, Cmd.none)
+                True ->
+                    --
+                    -- TODO : demande de suppression
+                    --
+                    --apiDeleteFile : FileSelector -> (Result Http.Error JD.Value -> msg) -> ApiCredentials -> Cmd msg
+                    ({model | phase = Removing True infoFile}
+                    , apiDeleteFile )
+                    --
+        DeleteProject fileId ->
             --
             -- TODO : validation de la suppression du projet sélectionné
             --
@@ -262,7 +265,7 @@ view model  =
                             ]
                 Creating _ -> [text "Création du projet en cours ..."]
                 Updating _ -> [text "Mise à jour de la racine ..."]
-                Removing _ -> [text "Suppression du projet ..."]
+                Removing _ _ -> [text "Suppression du projet ..."]
             )
         , (case model.phase of
             Failing error -> div [class "error"] [text error.info]
@@ -280,26 +283,42 @@ view model  =
                             , textarea
                                 [id "project_desc", onInput OnDescChange, style "width" "90%", rows 7]
                                 [text model.newProjectDesc]
-                            , p [style "text-align" "center"]
+                            , p [class "centered"]
                                 [ button [onClick CancelProject, class "button"] [text "Annuler"]
                                 , button [onClick CreateNameProject, class "button"] [text "Valider"]
                                 ]
                             ]
                     False ->
                         if Array.isEmpty model.projects then
-                            div [class "waiter"] [text "Vous n'avez actuellement aucun projet"]
+                            div [class "centered"] [text "Vous n'avez actuellement aucun projet"]
                         else
                             div [class "project_grid"]
                             (List.map viewProject (Array.toList model.projects))
+            Removing step infoFile ->
+                case step of
+                    False ->
+                        div [class "centered"]
+                            [ p [] [text "Êtes-vous sûr de vouloir supprimer le projet suivant :"]
+                            , p [] [text infoFile.name]
+                            , button [onClick CancelProject, class "button"] [text "Annuler"]
+                            , button [onClick (RemoveProject True infoFile), class "button"] [text "Supprimer"]
+                            ]
+                    True -> div [class "waiter"]
+                        [ p [] [text "Suppression en cours,"]
+                        , p [] [text "Veuillez patienter"]
+                        ]
             _ -> div [class "waiter"] [text "Veuillez patienter"]
         )
         ]
 
 viewProject : InfoFile -> Html Msg
 viewProject infoFile =
-    --
-    -- TODO : faire en sorte de pouvoir accéder au projet en cliquant sur son nom
-    -- TODO : un bouton doit permettre de supprimer le projet
-    --
-    div [class "project_box"] [text "Un projet"]
-    --
+    div [class "project_box"]
+        [ a [onClick (OpenProject infoFile.fileId)] [text infoFile.name]
+        , button [onClick (RemoveProject False infoFile), class "button"] [text "Supprimer"]
+        --
+        -- TODO : faire des évolutions sur le contenu à afficher en dessous
+        --
+        , p [] [text "(Statut du projet, à venir)"]
+        --
+        ]
