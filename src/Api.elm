@@ -82,6 +82,7 @@ prepareMedia : FileSelector -> String
 prepareMedia selector =
     case selector of
         FSCreate _ value -> JE.encode 0 value
+        FSUpdate _ value -> JE.encode 0 value
         _ -> ""
 
 prepareBytes : String -> (FileSelector -> String) -> FileSelector -> Http.Part

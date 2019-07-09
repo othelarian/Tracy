@@ -10,8 +10,8 @@ import Html.Events exposing (onClick, onInput)
 import Http
 import Json.Decode as JD
 import Json.Encode as JE
+import Random
 import Task
-import Time
 
 -- MODEL
 
@@ -22,6 +22,8 @@ type alias HomeError =
 
 type alias Adding = Bool
 
+type alias Validation = Bool
+
 type HomePhase
     = Checking
     | Failing HomeError
@@ -30,7 +32,7 @@ type HomePhase
     | Listing Adding
     | Creating String
     | Updating JE.Value 
-    | Removing
+    | Removing Validation
 
 type alias ArrayProjects = Array InfoFile
 
@@ -79,48 +81,21 @@ handleInit model =
     ({model | phase = Initializing}
     , apiCreateFile (FSCreate "tracy" jsonValue) CreateInit model.apiCredentials)
 
-handleNewNameProject : String
-handleNewNameProject =
+handleNewNameProject : Model -> (Model, Cmd Msg)
+handleNewNameProject model =
     let
-        getMonthNumber : Time.Month -> String
-        getMonthNumber month =
-            case month of
-                Time.Jan -> "01"
-                Time.Feb -> "02"
-                Time.Mar -> "03"
-                Time.Apr -> "04"
-                Time.May -> "05"
-                Time.Jun -> "06"
-                Time.Jul -> "07"
-                Time.Aug -> "08"
-                Time.Sep -> "09"
-                Time.Oct -> "10"
-                Time.Nov -> "11"
-                Time.Dec -> "12"
-        getDoubleDigit : Int -> String
-        getDoubleDigit number =
-            if number < 9 then "0"++(String.fromInt number) else String.fromInt number
-        time = Time.millisToPosix 0
-        timeName =
-            (String.fromInt (Time.toYear Time.utc time))
-            ++ (getMonthNumber (Time.toMonth Time.utc time))
-            ++ (getDoubleDigit (Time.toDay Time.utc time))
-            ++ (getDoubleDigit (Time.toHour Time.utc time))
-            ++ (getDoubleDigit (Time.toMinute Time.utc time))
-            ++ (getDoubleDigit (Time.toSecond Time.utc time))
+        rngList = List.map String.fromChar (String.toList "bcdefghijklmnopqrstuvwxyz0123456789-_ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+        randomNameGenerator = Random.list 20 (Random.uniform "a" rngList)
     in
-    "project_"++timeName
+    (model, Random.generate CreateProject randomNameGenerator)
 
-handleNewProject : Model -> Maybe String -> (Model, Cmd Msg)
-handleNewProject model maybeName =
+handleNewProject : Model -> String -> (Model, Cmd Msg)
+handleNewProject model fileName =
     let
-        newFileName = case maybeName of
-            Just existingName -> existingName
-            Nothing -> handleNewNameProject
         jsonValue = encodeNewProject model.newProjectName model.newProjectDesc
     in
-    ({model | phase = Creating newFileName}
-    , apiCreateFile (FSCreate newFileName jsonValue) ValidateProject model.apiCredentials)
+    ({model | phase = Creating fileName}
+    , apiCreateFile (FSCreate fileName jsonValue) ValidateProject model.apiCredentials)
     
 
 handleError : Model -> HomePhase -> Http.Error -> (Model, Cmd Msg)
@@ -141,12 +116,15 @@ type Msg
     | OnNameChange String
     | OnDescChange String
     | CancelProject
-    | CreateProject
+    | CreateNameProject
+    | CreateProject (List String)
     | ValidateProject (Result Http.Error String)
     --
     | OpenProject
     --
     | RemoveProject
+    --
+    | DeleteProject
     --
     | GoToProject (FileId, ApiCredentials)
 
@@ -182,11 +160,11 @@ update msg model =
                 Filling ->
                     ({model | phase = Filling}
                     , apiReadFile (FSRead model.homeId) FillInfo decodeReadHome model.apiCredentials)
-                Creating existingName ->  handleNewProject model (Just existingName)
+                Creating existingName ->  handleNewProject model existingName
                 Updating jsonValue ->
                     ({model | phase = Updating jsonValue}
                     , apiUpdateFile (FSUpdate model.homeId jsonValue) (UpdateInfo False) model.apiCredentials)
-                Removing ->
+                Removing _ ->
                     --
                     -- TODO : gestion du cas de suppression qui n'a pas fonctionné
                     --
@@ -227,7 +205,8 @@ update msg model =
         OnNameChange name -> ({model | newProjectName = name}, Cmd.none)
         OnDescChange desc -> ({model | newProjectDesc = desc}, Cmd.none)
         CancelProject -> ({model | phase = Listing False}, Cmd.none)
-        CreateProject -> handleNewProject model Nothing
+        CreateNameProject -> handleNewNameProject model
+        CreateProject generatedName -> handleNewProject model (String.concat generatedName)
         ValidateProject result ->
             case result of
                 Ok fileId ->
@@ -248,7 +227,13 @@ update msg model =
             --
         RemoveProject ->
             --
-            -- TODO : comment faire pour la suppression ?
+            -- TODO : demande de validation de la suppression du projet sélectionné
+            --
+            (model, Cmd.none)
+            --
+        DeleteProject ->
+            --
+            -- TODO : validation de la suppression du projet sélectionné
             --
             (model, Cmd.none)
             --
@@ -277,7 +262,7 @@ view model  =
                             ]
                 Creating _ -> [text "Création du projet en cours ..."]
                 Updating _ -> [text "Mise à jour de la racine ..."]
-                Removing -> [text "Suppression du projet ..."]
+                Removing _ -> [text "Suppression du projet ..."]
             )
         , (case model.phase of
             Failing error -> div [class "error"] [text error.info]
@@ -297,19 +282,24 @@ view model  =
                                 [text model.newProjectDesc]
                             , p [style "text-align" "center"]
                                 [ button [onClick CancelProject, class "button"] [text "Annuler"]
-                                , button [onClick CreateProject, class "button"] [text "Valider"]
+                                , button [onClick CreateNameProject, class "button"] [text "Valider"]
                                 ]
                             ]
                     False ->
                         if Array.isEmpty model.projects then
                             div [class "waiter"] [text "Vous n'avez actuellement aucun projet"]
                         else
-                            --
-                            -- TODO : lister les projets
-                            --
-                            div [] [text "(liste des projets à venir"]
-                            --
-                            --
+                            div [class "project_grid"]
+                            (List.map viewProject (Array.toList model.projects))
             _ -> div [class "waiter"] [text "Veuillez patienter"]
         )
         ]
+
+viewProject : InfoFile -> Html Msg
+viewProject infoFile =
+    --
+    -- TODO : faire en sorte de pouvoir accéder au projet en cliquant sur son nom
+    -- TODO : un bouton doit permettre de supprimer le projet
+    --
+    div [class "project_box"] [text "Un projet"]
+    --

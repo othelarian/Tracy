@@ -69,6 +69,17 @@ div.error {
     z-index: 1;
 }
 
+.project_grid {
+    margin: auto;
+    display: grid;
+    grid-template-columns: 31% 31% 31%;
+    grid-gap: 20px;
+}
+
+.project_box {
+    border: solid 2px #ddd;
+}
+
 .waiter {
     text-align: center;
 }
@@ -96,4 +107,16 @@ div.error {
     margin: auto;
     position: absolute;
     bottom: 0;
+}
+
+@media only screen and (max-width: 1150px) {
+    .project_grid {
+        grid-template-columns: 49% 49%;
+    }
+}
+
+@media only screen and (max-width: 710px) {
+    .project_grid {
+        grid-template-columns: 100%;
+    }
 }
