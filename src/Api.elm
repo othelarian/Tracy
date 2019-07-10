@@ -42,7 +42,6 @@ type ApiAction
     | CreateFile
     | ReadFile
     | UpdateFile
-    | DeleteFile
 
 type alias FileId = String
 
@@ -65,7 +64,6 @@ type FileSelector
     | FSCreate String JE.Value
     | FSRead FileId
     | FSUpdate FileId JE.Value
-    | FSDelete FileId
 
 -- PREPARE
 
@@ -121,9 +119,17 @@ apiUpdateFile : FileSelector -> (Result Http.Error String -> msg) -> ApiCredenti
 apiUpdateFile selector message credentials =
     makeRequest UpdateFile selector message decodeUploadFile credentials.token credentials.apiKey
 
-apiDeleteFile : FileSelector -> (Result Http.Error JD.Value -> msg) -> ApiCredentials -> Cmd msg
-apiDeleteFile selector message credentials =
-    makeRequest DeleteFile selector message JD.value credentials.token credentials.apiKey
+apiDeleteFile : FileId -> (Result Http.Error () -> msg) -> ApiCredentials -> Cmd msg
+apiDeleteFile fileId message credentials =
+    Http.request
+        { method = "DELETE"
+        , headers = [(Http.header "authorization" ("Bearer "++credentials.token))]
+        , url = (UB.crossOrigin "https://www.googleapis.com" ["drive", "v3", "files", fileId] [])
+        , body = Http.emptyBody
+        , expect = Http.expectWhatever message
+        , timeout = Nothing
+        , tracker = Nothing
+        }
 
 -- MAIN REQUEST
 
@@ -133,7 +139,6 @@ makeRequest action selector message decoder token apiKey =
         { method = case action of
             CreateFile -> "POST"
             UpdateFile -> "PATCH"
-            DeleteFile -> "DELETE"
             _ -> "GET"
         , headers = [(Http.header "authorization" ("Bearer "++token))]
         , url = (UB.crossOrigin
@@ -143,7 +148,6 @@ makeRequest action selector message decoder token apiKey =
                     fileId = case selector of
                         FSRead id -> id
                         FSUpdate id _ -> id
-                        FSDelete id -> id
                         _ -> ""
                 in
                 case action of
@@ -160,7 +164,6 @@ makeRequest action selector message decoder token apiKey =
                     CreateFile -> (UB.string "alt" "json")::(UB.string "uploadType" "multipart")::key
                     ReadFile -> (UB.string "alt" "media")::key
                     UpdateFile -> (UB.string "alt" "json")::(UB.string "uploadType" "multipart")::key
-                    _ -> []
                 )
             )
         , body =

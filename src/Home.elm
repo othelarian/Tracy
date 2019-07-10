@@ -1,7 +1,7 @@
 module Home exposing(Model, Msg(..), init, update, view)
 
 import Api exposing (..)
-import Project exposing (ProjectInfo, encodeNewProject, init)
+import Project exposing (ProjectInfo, createNewProject, encodeProject, init)
 
 import Array exposing (Array)
 import Html exposing (Html, a, button, div, input, label, p, span, text, textarea)
@@ -94,11 +94,19 @@ handleNewNameProject model =
 handleNewProject : Model -> String -> (Model, Cmd Msg)
 handleNewProject model fileName =
     let
-        jsonValue = encodeNewProject model.newProjectName model.newProjectDesc
+        jsonValue = encodeProject (createNewProject model.newProjectDesc)
     in
     ({model | phase = Creating fileName}
     , apiCreateFile (FSCreate fileName jsonValue) ValidateProject model.apiCredentials)
     
+handleUpdateAfterDelete : Model -> FileId -> (Model, Cmd Msg)
+handleUpdateAfterDelete model fileId =
+    let
+        filteredArray = Array.filter (\n -> n.fileId /= fileId) model.projects
+        newModel = {model | projects = filteredArray}
+        newJson = encodeHome newModel
+    in
+    ({newModel | phase = Updating newJson}, apiUpdateFile (FSUpdate model.homeId newJson) (UpdateInfo True) model.apiCredentials)
 
 handleError : Model -> HomePhase -> Http.Error -> (Model, Cmd Msg)
 handleError model phase error =
@@ -109,7 +117,7 @@ handleError model phase error =
 type alias StayHome = Bool
 
 type Msg
-    = Check (Result Http.Error (Array InfoFile))
+    = Check (Result Http.Error ArrayProjects)
     | Retry HomeError
     | CreateInit (Result Http.Error String)
     | FillInfo (Result Http.Error ArrayProjects)
@@ -121,9 +129,9 @@ type Msg
     | CreateNameProject
     | CreateProject (List String)
     | ValidateProject (Result Http.Error String)
-    | OpenProject FileId
     | RemoveProject Validation InfoFile
-    | DeleteProject FileId
+    | CheckDeleteProject FileId (Result Http.Error ArrayProjects)
+    | DeleteProject FileId (Result Http.Error ())
     | GoToProject (FileId, ApiCredentials)
 
 update : Msg -> Model -> (Model, Cmd Msg)
@@ -162,13 +170,9 @@ update msg model =
                 Updating jsonValue ->
                     ({model | phase = Updating jsonValue}
                     , apiUpdateFile (FSUpdate model.homeId jsonValue) (UpdateInfo False) model.apiCredentials)
-                Removing _ _ ->
-                    --
-                    -- TODO : gestion du cas de suppression qui n'a pas fonctionné
-                    --
-                    (model, Cmd.none)
-                    --
-                    --
+                Removing _ infoFile ->
+                    ({model | phase = Removing True infoFile}
+                    , apiGetListFiles FSNone (CheckDeleteProject infoFile.fileId) model.apiCredentials)
                 _ -> (model, Cmd.none)
         CreateInit result ->
             case result of
@@ -212,34 +216,32 @@ update msg model =
                         infoFile = InfoFile fileId model.newProjectName
                         newArrayProjects = Array.push infoFile model.projects
                         newModel = {model | projects = newArrayProjects}
-                        jsonValue = encodeHome newModel
+                        newJson = encodeHome newModel
                     in
-                    ({newModel | newProjectName = "", newProjectDesc = "", phase = Updating jsonValue}
-                    , apiUpdateFile (FSUpdate model.homeId jsonValue) (UpdateInfo False) model.apiCredentials)
+                    ({newModel | newProjectName = "", newProjectDesc = "", phase = Updating newJson}
+                    , apiUpdateFile (FSUpdate model.homeId newJson) (UpdateInfo False) model.apiCredentials)
                 Err error -> handleError model model.phase error
-        OpenProject fileId ->
-            --
-            -- TODO : ouverture d'un projet lors d'un clic sur son nom
-            --
-            (model, Cmd.none)
-            --
         RemoveProject validation infoFile ->
             case validation of
                 False -> ({model | phase = Removing False infoFile}, Cmd.none)
                 True ->
-                    --
-                    -- TODO : demande de suppression
-                    --
-                    --apiDeleteFile : FileSelector -> (Result Http.Error JD.Value -> msg) -> ApiCredentials -> Cmd msg
                     ({model | phase = Removing True infoFile}
-                    , apiDeleteFile )
-                    --
-        DeleteProject fileId ->
-            --
-            -- TODO : validation de la suppression du projet sélectionné
-            --
-            (model, Cmd.none)
-            --
+                    , apiGetListFiles FSNone (CheckDeleteProject infoFile.fileId) model.apiCredentials)
+        CheckDeleteProject fileId result ->
+            case result of
+                Ok listFiles ->
+                    let
+                        filteredArray = Array.filter (\n -> n.fileId == fileId) listFiles
+                    in
+                    if Array.isEmpty filteredArray then
+                        handleUpdateAfterDelete model fileId
+                    else
+                        (model, apiDeleteFile fileId (DeleteProject fileId) model.apiCredentials)
+                Err error -> handleError model model.phase error
+        DeleteProject fileId result ->
+            case result of
+                Ok _ -> handleUpdateAfterDelete model fileId
+                Err error -> handleError model model.phase error
         GoToProject _ -> (model, Cmd.none)
 
 -- VIEW
@@ -293,7 +295,7 @@ view model  =
                             div [class "centered"] [text "Vous n'avez actuellement aucun projet"]
                         else
                             div [class "project_grid"]
-                            (List.map viewProject (Array.toList model.projects))
+                            (List.map (viewProject model.apiCredentials) (Array.toList model.projects))
             Removing step infoFile ->
                 case step of
                     False ->
@@ -311,14 +313,15 @@ view model  =
         )
         ]
 
-viewProject : InfoFile -> Html Msg
-viewProject infoFile =
+viewProject : ApiCredentials -> InfoFile -> Html Msg
+viewProject credentials infoFile =
     div [class "project_box"]
-        [ a [onClick (OpenProject infoFile.fileId)] [text infoFile.name]
+        [ a [onClick (GoToProject (infoFile.fileId, credentials))] [text infoFile.name]
         , button [onClick (RemoveProject False infoFile), class "button"] [text "Supprimer"]
         --
         -- TODO : faire des évolutions sur le contenu à afficher en dessous
         --
+        , p [] [text "En attente : 000 | En cours : 000 | Terminées : 000 | Total : 000"]
         , p [] [text "(Statut du projet, à venir)"]
         --
         ]

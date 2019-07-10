@@ -17,16 +17,20 @@ import Json.Decode exposing (Decoder, array, decodeValue, errorToString, field, 
 import Json.Encode as JE
 
 
--- WIP : listing des projets
 -- WIP : supprimer des projets
 
--- TODO : faire en sorte de pouvoir afficher / cacher les tests
-
--- TODO : pouvoir sortir de Project pour retourner vers le Home
 -- TODO : page d'accueil d'un projet, avec son nom et sa description
 -- TODO : faire en sorte de pouvoir modifier le nom et la description
 
--- TODO : page de listing des actions à mener
+-- TODO : lister les tâches d'un projet
+-- TODO : ajouter une tâche
+-- TODO : faire évoluer une tâche
+-- TODO : supprimer une tâche
+-- TODO : lier une tâche à une tâche parente
+-- TODO : déplacer une tâche dans une tâche parente
+
+-- TODO : création d'icones
+-- TODO : garder la liste des projets façon cache lorsqu'on passe de Home à Project, pour éviter des appels inutiles
 
 -- MAIN
 
@@ -130,7 +134,8 @@ type Msg
     | TestDelete
     | TestRepList (Result Http.Error (Array InfoFile))
     | TestRepString (Result Http.Error String)
-    | TestRepValue (Result Http.Error JD.Value)
+    | TestRepValue (Result Http.Error String)
+    | TestRepUnit (Result Http.Error ())
     | TestChange String
 
 updateWith : (subModel -> Model) -> (subMsg -> Msg) -> (subModel, Cmd subMsg) -> (Model, Cmd Msg)
@@ -176,18 +181,19 @@ update msg model =
         (HomeMsg subMsg, Home home) ->
             case subMsg of
                 Home.GoToProject (fileId, credentials) ->
+                    (Project (Project.init credentials home.testShow)
                     --
-                    -- TODO : interception de la sortie du Home pour aller vers le Project
-                    -- TODO : finaliser en déclenchant la récupération des infos du projets (Reading phase)
+                    -- TODO : if faut déclencher une action pour que le chargement est lieu
                     --
-                    (Project (Project.init credentials home.testShow), Cmd.none)
+                    , Cmd.none)
                     --
                 _ -> updateWith Home HomeMsg (Home.update subMsg home)
         (ProjectMsg subMsg, Project project) ->
-            --
-            -- TODO : interception de la sortie de Project pour aller vers le Home
-            --
-            updateWith Project ProjectMsg (Project.update subMsg project)
+            case subMsg of
+                Project.GoToHome credentials ->
+                    (Home (Home.init credentials project.testShow)
+                    , Cmd.map HomeMsg (apiGetListFiles FSNone Home.Check credentials))
+                _ -> updateWith Project ProjectMsg (Project.update subMsg project)
         (TestCom testMsg, _) ->
             let
                 genModel = getGenericModel model
@@ -215,10 +221,11 @@ update msg model =
             (model, apiReadFile (FSRead fileId) TestRepString decodeTestRead creds)
         (TestDelete, _) ->
             let (creds, fileId) = fromModelTest model in
-            (model, apiDeleteFile (FSDelete fileId) TestRepValue creds)
+            (model, apiDeleteFile fileId TestRepUnit creds)
         (TestRepList rep, _) -> (model, Cmd.none)
         (TestRepString rep, _) -> (model, Cmd.none)
         (TestRepValue rep, _) -> (model, Cmd.none)
+        (TestRepUnit rep, _) -> (model, Cmd.none)
         (TestChange value, _) ->
             case model of
                 Guest data -> (Guest {data | testValue = value}, Cmd.none)
