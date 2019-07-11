@@ -1,7 +1,7 @@
-module Home exposing(Model, Msg(..), init, update, view)
+module Home exposing(Model, Msg(..), decodeHome, init, update, view)
 
 import Api exposing (..)
-import Project exposing (ProjectInfo, createNewProject, encodeProject, init)
+import Project exposing (createNewProject, encodeProject, init)
 
 import Array exposing (Array)
 import Html exposing (Html, a, button, div, input, label, p, span, text, textarea)
@@ -55,8 +55,8 @@ init apiCredentials testShow =
 
 -- JSON DECODE
 
-decodeReadHome : JD.Decoder ArrayProjects
-decodeReadHome =
+decodeHome : JD.Decoder ArrayProjects
+decodeHome =
     JD.field "projects" (JD.array decodeInfoFile)
 
 -- JSON ENCODE
@@ -132,7 +132,7 @@ type Msg
     | RemoveProject Validation InfoFile
     | CheckDeleteProject FileId (Result Http.Error ArrayProjects)
     | DeleteProject FileId (Result Http.Error ())
-    | GoToProject (FileId, ApiCredentials)
+    | GoToProject (InfoFile, ApiCredentials)
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
@@ -153,7 +153,7 @@ update msg model =
                                     Nothing -> InfoFile "" ""
                             in
                             ({model | phase = Filling, homeId = tracy.fileId}
-                            , apiReadFile (FSRead tracy.fileId) FillInfo decodeReadHome model.apiCredentials)
+                            , apiReadFile (FSRead tracy.fileId) FillInfo decodeHome model.apiCredentials)
                         else
                             handleInit model
                 Err error -> handleError model Checking error
@@ -165,7 +165,7 @@ update msg model =
                     ({model | phase = Checking}, apiGetListFiles FSNone Check model.apiCredentials)
                 Filling ->
                     ({model | phase = Filling}
-                    , apiReadFile (FSRead model.homeId) FillInfo decodeReadHome model.apiCredentials)
+                    , apiReadFile (FSRead model.homeId) FillInfo decodeHome model.apiCredentials)
                 Creating existingName ->  handleNewProject model existingName
                 Updating jsonValue ->
                     ({model | phase = Updating jsonValue}
@@ -178,7 +178,7 @@ update msg model =
             case result of
                 Ok fileId ->
                     ({model | phase = Filling, homeId = fileId}
-                    , apiReadFile (FSRead fileId) FillInfo decodeReadHome model.apiCredentials)
+                    , apiReadFile (FSRead fileId) FillInfo decodeHome model.apiCredentials)
                 Err error -> handleError model Initializing error
         FillInfo result ->
             case result of
@@ -201,7 +201,7 @@ update msg model =
                                         Just infoFile -> infoFile
                                         Nothing -> InfoFile "" ""
                             in
-                            (model, Task.perform GoToProject (Task.succeed (lastProject.fileId, model.apiCredentials)))
+                            (model, Task.perform GoToProject (Task.succeed (lastProject, model.apiCredentials)))
                 Err error -> handleError model model.phase error
         AddProject -> ({model | phase = Listing True}, Cmd.none)
         OnNameChange name -> ({model | newProjectName = name}, Cmd.none)
@@ -278,8 +278,13 @@ view model  =
                             [ p []
                                 [ label [for "project_name"] [text "Nom : "]
                                 , input
-                                    [id "project_name", onInput OnNameChange, maxlength 20, style "width" "200px"]
-                                    [text model.newProjectName]
+                                    [ id "project_name"
+                                    , value model.newProjectName
+                                    , onInput OnNameChange
+                                    , maxlength 20
+                                    , style "width" "200px"
+                                    ]
+                                    []
                                 ]
                             , p [] [label [for "project_desc"] [text "Description (optionnel) :"]]
                             , textarea
@@ -316,12 +321,21 @@ view model  =
 viewProject : ApiCredentials -> InfoFile -> Html Msg
 viewProject credentials infoFile =
     div [class "project_box"]
-        [ a [onClick (GoToProject (infoFile.fileId, credentials))] [text infoFile.name]
+        [ a [onClick (GoToProject (infoFile, credentials))] [text infoFile.name]
         , button [onClick (RemoveProject False infoFile), class "button"] [text "Supprimer"]
         --
         -- TODO : faire des évolutions sur le contenu à afficher en dessous
+        -- TODO : faire en sorte que les infos ci-dessous remontent
         --
-        , p [] [text "En attente : 000 | En cours : 000 | Terminées : 000 | Total : 000"]
+        , div [class "project_progress"]
+            [ span [class "round_box done_color"] [text "000"]
+            , span [class "round_box wip_color"] [text "000"]
+            , span [class "round_box wait_color"] [text "000"]
+            , span [class "round_box total_color"] [text "000"]
+            ]
+        --
+        -- TODO : insérer un diagramme en barres sommées
+        --
         , p [] [text "(Statut du projet, à venir)"]
         --
         ]

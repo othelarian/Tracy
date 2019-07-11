@@ -180,13 +180,17 @@ update msg model =
                             , Cmd.map HomeMsg (apiGetListFiles FSNone Home.Check newCredentials))
         (HomeMsg subMsg, Home home) ->
             case subMsg of
-                Home.GoToProject (fileId, credentials) ->
-                    (Project (Project.init credentials home.testShow)
-                    --
-                    -- TODO : if faut déclencher une action pour que le chargement est lieu
-                    --
-                    , Cmd.none)
-                    --
+                Home.GoToProject (infoFile, credentials) ->
+                    (Project (Project.init credentials infoFile home.homeId home.testShow)
+                    , Cmd.map
+                        ProjectMsg
+                        (apiReadFile
+                            (FSRead infoFile.fileId)
+                            (Project.LoadProject infoFile)
+                            Project.decodeProject
+                            credentials
+                        )
+                    )
                 _ -> updateWith Home HomeMsg (Home.update subMsg home)
         (ProjectMsg subMsg, Project project) ->
             case subMsg of

@@ -16,7 +16,7 @@ textarea {
     background: #0099ff;
     color: white;
     padding: 3px;
-    margin-right: 5px;
+    margin: auto 5px;
 }
 .button:hover {
     background: white;
@@ -99,6 +99,32 @@ div.error {
     float: right;
 }
 
+.project_progress > span {
+    margin: auto 2px;
+    padding: 1px 8px;
+    color: white;
+}
+
+.project_progress > .done_color {
+    background: #0099ff;
+}
+
+.project_progress > .wait_color {
+    background: #99ccff;
+}
+
+.project_progress > .wip_color {
+    background: #77aaff;
+}
+
+.project_progress > .total_color {
+    background: black;
+}
+
+.round_box {
+    border-radius: 10px;
+}
+
 .zone_status {
     width: 60%;
     max-width: 300px;
@@ -114,6 +140,7 @@ div.error {
 }
 .zone_status button {
     float: right;
+    margin-left: 5px;
 }
 
 .zone_test {
