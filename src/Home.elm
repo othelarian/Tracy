@@ -1,9 +1,12 @@
-module Home exposing(Model, Msg(..), decodeHome, init, update, view)
+module Home exposing(Model, Msg(..), init, update, view)
 
 import Api exposing (..)
-import Project exposing (createNewProject, encodeProject, init)
+import Graphics exposing (..)
+import JsonData
+import JsonData exposing (ProjectInfo)
+import Project exposing (createNewProject, init)
 
-import Array exposing (Array)
+import Dict
 import Html exposing (Html, a, button, div, input, label, p, span, text, textarea)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput)
@@ -34,14 +37,14 @@ type HomePhase
     | Listing Adding
     | Creating String
     | Updating JE.Value 
-    | Removing Validation InfoFile
+    | Removing Validation ProjectInfo
 
-type alias ArrayProjects = Array InfoFile
+type alias ListProjects = List ProjectInfo
 
 type alias Model =
     { apiCredentials : ApiCredentials
     , homeId : FileId
-    , projects : ArrayProjects
+    , projects : ListProjects
     , phase : HomePhase
     , newProjectName : String
     , newProjectDesc : String
@@ -51,34 +54,14 @@ type alias Model =
 
 init : ApiCredentials -> Bool -> Model
 init apiCredentials testShow =
-    Model apiCredentials "" Array.empty Checking "" "" "" testShow
-
--- JSON DECODE
-
-decodeHome : JD.Decoder ArrayProjects
-decodeHome =
-    JD.field "projects" (JD.array decodeInfoFile)
-
--- JSON ENCODE
-
-encodeHome : Model -> JE.Value
-encodeHome model =
-    let
-        encodeInfoFile : InfoFile -> JE.Value
-        encodeInfoFile infoFile =
-            JE.object
-                [ ("id", JE.string infoFile.fileId)
-                , ("name", JE.string infoFile.name)
-                ]
-    in
-    JE.object [ ("projects", JE.array encodeInfoFile model.projects) ]
+    Model apiCredentials "" [] Checking "" "" "" testShow
 
 -- HANDLERS
 
 handleInit : Model -> (Model, Cmd Msg)
 handleInit model =
     let
-        jsonValue = JE.object [ ("projects", JE.array JE.string Array.empty) ]
+        jsonValue = JE.object [ ("projects", JE.list JE.string []) ]
     in
     ({model | phase = Initializing}
     , apiCreateFile (FSCreate "tracy" jsonValue) CreateInit model.apiCredentials)
@@ -94,7 +77,7 @@ handleNewNameProject model =
 handleNewProject : Model -> String -> (Model, Cmd Msg)
 handleNewProject model fileName =
     let
-        jsonValue = encodeProject (createNewProject model.newProjectDesc)
+        jsonValue = JsonData.encodeProject (createNewProject model.newProjectDesc)
     in
     ({model | phase = Creating fileName}
     , apiCreateFile (FSCreate fileName jsonValue) ValidateProject model.apiCredentials)
@@ -102,9 +85,9 @@ handleNewProject model fileName =
 handleUpdateAfterDelete : Model -> FileId -> (Model, Cmd Msg)
 handleUpdateAfterDelete model fileId =
     let
-        filteredArray = Array.filter (\n -> n.fileId /= fileId) model.projects
+        filteredArray = List.filter (\n -> n.fileId /= fileId) model.projects
         newModel = {model | projects = filteredArray}
-        newJson = encodeHome newModel
+        newJson = JsonData.encodeHome newModel.projects
     in
     ({newModel | phase = Updating newJson}, apiUpdateFile (FSUpdate model.homeId newJson) (UpdateInfo True) model.apiCredentials)
 
@@ -117,10 +100,10 @@ handleError model phase error =
 type alias StayHome = Bool
 
 type Msg
-    = Check (Result Http.Error ArrayProjects)
+    = Check (Result Http.Error (List InfoFile))
     | Retry HomeError
     | CreateInit (Result Http.Error String)
-    | FillInfo (Result Http.Error ArrayProjects)
+    | FillInfo (Result Http.Error ListProjects)
     | UpdateInfo StayHome (Result Http.Error String)
     | AddProject
     | OnNameChange String
@@ -129,10 +112,10 @@ type Msg
     | CreateNameProject
     | CreateProject (List String)
     | ValidateProject (Result Http.Error String)
-    | RemoveProject Validation InfoFile
-    | CheckDeleteProject FileId (Result Http.Error ArrayProjects)
+    | RemoveProject Validation ProjectInfo
+    | CheckDeleteProject FileId (Result Http.Error (List InfoFile))
     | DeleteProject FileId (Result Http.Error ())
-    | GoToProject (InfoFile, ApiCredentials)
+    | GoToProject (ProjectInfo, ApiCredentials)
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
@@ -140,20 +123,20 @@ update msg model =
         Check result ->
             case result of
                 Ok listFiles ->
-                    if Array.isEmpty listFiles then
+                    if List.isEmpty listFiles then
                         handleInit model
                     else
                         let
-                            filteredArray = Array.filter (\n -> n.name == "tracy.json") listFiles
+                            filteredList = List.filter (\n -> n.name == "tracy.json") listFiles
                         in
-                        if Array.length filteredArray == 1 then
+                        if List.length filteredList == 1 then
                             let
-                                tracy = case Array.get 0 filteredArray of
+                                tracy = case List.head filteredList of
                                     Just value -> value
                                     Nothing -> InfoFile "" ""
                             in
                             ({model | phase = Filling, homeId = tracy.fileId}
-                            , apiReadFile (FSRead tracy.fileId) FillInfo decodeHome model.apiCredentials)
+                            , apiReadFile (FSRead tracy.fileId) FillInfo JsonData.decodeHome model.apiCredentials)
                         else
                             handleInit model
                 Err error -> handleError model Checking error
@@ -165,28 +148,26 @@ update msg model =
                     ({model | phase = Checking}, apiGetListFiles FSNone Check model.apiCredentials)
                 Filling ->
                     ({model | phase = Filling}
-                    , apiReadFile (FSRead model.homeId) FillInfo decodeHome model.apiCredentials)
+                    , apiReadFile (FSRead model.homeId) FillInfo JsonData.decodeHome model.apiCredentials)
                 Creating existingName ->  handleNewProject model existingName
                 Updating jsonValue ->
                     ({model | phase = Updating jsonValue}
                     , apiUpdateFile (FSUpdate model.homeId jsonValue) (UpdateInfo False) model.apiCredentials)
-                Removing _ infoFile ->
-                    ({model | phase = Removing True infoFile}
-                    , apiGetListFiles FSNone (CheckDeleteProject infoFile.fileId) model.apiCredentials)
+                Removing _ projectInfo ->
+                    ({model | phase = Removing True projectInfo}
+                    , apiGetListFiles FSNone (CheckDeleteProject projectInfo.fileId) model.apiCredentials)
                 _ -> (model, Cmd.none)
         CreateInit result ->
             case result of
                 Ok fileId ->
                     ({model | phase = Filling, homeId = fileId}
-                    , apiReadFile (FSRead fileId) FillInfo decodeHome model.apiCredentials)
+                    , apiReadFile (FSRead fileId) FillInfo JsonData.decodeHome model.apiCredentials)
                 Err error -> handleError model Initializing error
         FillInfo result ->
             case result of
                 Ok listProjects ->
-                    --
-                    -- TODO : sorting the list
-                    --
-                    ({model | projects = listProjects, phase = Listing False}, Cmd.none)
+                    let sortedProjects = List.sortBy .name listProjects in
+                    ({model | projects = sortedProjects, phase = Listing False}, Cmd.none)
                 Err error -> handleError model Filling error
         UpdateInfo stay result ->
             case result of
@@ -195,11 +176,10 @@ update msg model =
                         True -> ({model | phase = Listing False}, Cmd.none)
                         False ->
                             let
-                                lastIndex = (Array.length model.projects) - 1
                                 lastProject =
-                                    case (Array.get lastIndex model.projects) of
-                                        Just infoFile -> infoFile
-                                        Nothing -> InfoFile "" ""
+                                    case (List.head model.projects) of
+                                        Just projectInfo -> projectInfo
+                                        Nothing -> ProjectInfo "" "" [0,0,0]
                             in
                             (model, Task.perform GoToProject (Task.succeed (lastProject, model.apiCredentials)))
                 Err error -> handleError model model.phase error
@@ -213,27 +193,27 @@ update msg model =
             case result of
                 Ok fileId ->
                     let
-                        infoFile = InfoFile fileId model.newProjectName
-                        newArrayProjects = Array.push infoFile model.projects
+                        projectInfo = ProjectInfo fileId model.newProjectName [0,0,0]
+                        newArrayProjects = projectInfo::model.projects
                         newModel = {model | projects = newArrayProjects}
-                        newJson = encodeHome newModel
+                        newJson = JsonData.encodeHome newModel.projects
                     in
                     ({newModel | newProjectName = "", newProjectDesc = "", phase = Updating newJson}
                     , apiUpdateFile (FSUpdate model.homeId newJson) (UpdateInfo False) model.apiCredentials)
                 Err error -> handleError model model.phase error
-        RemoveProject validation infoFile ->
+        RemoveProject validation projectInfo ->
             case validation of
-                False -> ({model | phase = Removing False infoFile}, Cmd.none)
+                False -> ({model | phase = Removing False projectInfo}, Cmd.none)
                 True ->
-                    ({model | phase = Removing True infoFile}
-                    , apiGetListFiles FSNone (CheckDeleteProject infoFile.fileId) model.apiCredentials)
+                    ({model | phase = Removing True projectInfo}
+                    , apiGetListFiles FSNone (CheckDeleteProject projectInfo.fileId) model.apiCredentials)
         CheckDeleteProject fileId result ->
             case result of
                 Ok listFiles ->
                     let
-                        filteredArray = Array.filter (\n -> n.fileId == fileId) listFiles
+                        filteredList = List.filter (\n -> n.fileId == fileId) listFiles
                     in
-                    if Array.isEmpty filteredArray then
+                    if List.isEmpty filteredList then
                         handleUpdateAfterDelete model fileId
                     else
                         (model, apiDeleteFile fileId (DeleteProject fileId) model.apiCredentials)
@@ -263,7 +243,7 @@ view model  =
                         True -> [ span [] [text "Ajout d'un nouveau projet"] ]
                         False ->
                             [ span [] [text "Liste des Projets"]
-                            , button [onClick AddProject, class "button_topsnap"] [text "Ajouter"]
+                            , button [onClick AddProject, class "button_topsnap"] [iconAdd]
                             ]
                 Creating _ -> [text "Création du projet en cours ..."]
                 Updating _ -> [text "Mise à jour de la racine ..."]
@@ -291,24 +271,24 @@ view model  =
                                 [id "project_desc", onInput OnDescChange, style "width" "90%", rows 7]
                                 [text model.newProjectDesc]
                             , p [class "centered"]
-                                [ button [onClick CancelProject, class "button"] [text "Annuler"]
-                                , button [onClick CreateNameProject, class "button"] [text "Valider"]
+                                [ button [onClick CancelProject, class "button_round"] [iconClose]
+                                , button [onClick CreateNameProject, class "button_round"] [iconValid]
                                 ]
                             ]
                     False ->
-                        if Array.isEmpty model.projects then
+                        if List.isEmpty model.projects then
                             div [class "centered"] [text "Vous n'avez actuellement aucun projet"]
                         else
                             div [class "project_grid"]
-                            (List.map (viewProject model.apiCredentials) (Array.toList model.projects))
-            Removing step infoFile ->
+                            (List.map (viewProject model.apiCredentials) model.projects)
+            Removing step projectInfo ->
                 case step of
                     False ->
                         div [class "centered"]
                             [ p [] [text "Êtes-vous sûr de vouloir supprimer le projet suivant :"]
-                            , p [] [text infoFile.name]
-                            , button [onClick CancelProject, class "button"] [text "Annuler"]
-                            , button [onClick (RemoveProject True infoFile), class "button"] [text "Supprimer"]
+                            , p [] [text projectInfo.name]
+                            , button [onClick CancelProject, class "button_round"] [iconClose]
+                            , button [onClick (RemoveProject True projectInfo), class "button_round"] [iconValid]
                             ]
                     True -> div [class "waiter"]
                         [ p [] [text "Suppression en cours,"]
@@ -318,24 +298,30 @@ view model  =
         )
         ]
 
-viewProject : ApiCredentials -> InfoFile -> Html Msg
-viewProject credentials infoFile =
+viewProject : ApiCredentials -> ProjectInfo -> Html Msg
+viewProject credentials projectInfo =
+    let
+        valuesDict = Dict.fromList (List.indexedMap Tuple.pair projectInfo.values)
+        total = List.sum projectInfo.values
+        getValue id = case (Dict.get id valuesDict) of
+            Just value -> String.fromInt value
+            Nothing -> "0"
+    in
     div [class "project_box"]
-        [ a [onClick (GoToProject (infoFile, credentials))] [text infoFile.name]
-        , button [onClick (RemoveProject False infoFile), class "button"] [text "Supprimer"]
-        --
-        -- TODO : faire des évolutions sur le contenu à afficher en dessous
-        -- TODO : faire en sorte que les infos ci-dessous remontent
-        --
+        [ a [onClick (GoToProject (projectInfo, credentials))] [text projectInfo.name]
+        , button [onClick (RemoveProject False projectInfo), class "button_round"] [iconClose]
         , div [class "project_progress"]
-            [ span [class "round_box done_color"] [text "000"]
-            , span [class "round_box wip_color"] [text "000"]
-            , span [class "round_box wait_color"] [text "000"]
-            , span [class "round_box total_color"] [text "000"]
+            [ span [class "round_box done_color"] [text (getValue 0)]
+            , span [class "round_box wip_color"] [text (getValue 1)]
+            , span [class "round_box wait_color"] [text (getValue 2)]
+            , span [class "round_box total_color"] [text (String.fromInt total)]
             ]
-        --
-        -- TODO : insérer un diagramme en barres sommées
-        --
+        , (if total > 0 then
+            --
+            -- TODO : insérer un diagramme en barres sommées
+            --
+            div [] [text "(future barre ici"]
+            --
+        else text "")
         , p [] [text "(Statut du projet, à venir)"]
-        --
         ]

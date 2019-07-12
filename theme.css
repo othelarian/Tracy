@@ -23,6 +23,28 @@ textarea {
     color: #0099ff;
 }
 
+.button_round {
+    border: solid 1px #0099ff;
+    border-radius: 10px;
+    background: #0099ff;
+    color: white;
+    padding: 3px;
+    margin: auto 5px;
+    width: 22px;
+    height: 22px;
+}
+.button_round:hover {
+    background: white;
+    color: #0099ff;
+}
+.button_round:hover > svg > .iconsBlock {
+    stroke: #0099ff;
+    fill: #0099ff;
+}
+.button_round:hover > svg > .iconsLine {
+    stroke: #0099ff;
+}
+
 .button_topsnap {
     border: solid 1px #0099ff;
     border-radius: 0 0 10px 10px;
@@ -33,6 +55,13 @@ textarea {
 .button_topsnap:hover {
     background: white;
     color: #0099ff;
+}
+.button_topsnap:hover > svg > .iconsBlock {
+    stroke: #0099ff;
+    fill: #0099ff;
+}
+.button_topsnap:hover > svg > .iconsLine {
+    stroke: #0099ff;
 }
 
 .centered {
@@ -58,6 +87,18 @@ div.error {
 
 .hide {
     display: none;
+}
+
+.iconsLine, .iconBlock {
+    stroke-width: 2;
+    stroke: white;
+}
+.iconsLine {
+    fill: transparent;
+}
+
+.iconsBlock {
+    fill: white;
 }
 
 .panel_connect {

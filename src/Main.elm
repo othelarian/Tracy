@@ -1,7 +1,9 @@
 port module Main exposing (..)
 
 import Api exposing (..)
+import Graphics exposing (iconExit)
 import Home
+import JsonData
 import Project
 
 import Array exposing (Array)
@@ -17,10 +19,8 @@ import Json.Decode exposing (Decoder, array, decodeValue, errorToString, field, 
 import Json.Encode as JE
 
 
--- WIP : supprimer des projets
-
--- TODO : page d'accueil d'un projet, avec son nom et sa description
--- TODO : faire en sorte de pouvoir modifier le nom et la description
+-- WIP : page d'accueil d'un projet, avec son nom et sa description
+-- WIP : faire en sorte de pouvoir modifier la description
 
 -- TODO : lister les tâches d'un projet
 -- TODO : ajouter une tâche
@@ -28,9 +28,6 @@ import Json.Encode as JE
 -- TODO : supprimer une tâche
 -- TODO : lier une tâche à une tâche parente
 -- TODO : déplacer une tâche dans une tâche parente
-
--- TODO : création d'icones
--- TODO : garder la liste des projets façon cache lorsqu'on passe de Home à Project, pour éviter des appels inutiles
 
 -- MAIN
 
@@ -132,7 +129,7 @@ type Msg
     | TestCreate
     | TestRead
     | TestDelete
-    | TestRepList (Result Http.Error (Array InfoFile))
+    | TestRepList (Result Http.Error (List InfoFile))
     | TestRepString (Result Http.Error String)
     | TestRepValue (Result Http.Error String)
     | TestRepUnit (Result Http.Error ())
@@ -187,7 +184,7 @@ update msg model =
                         (apiReadFile
                             (FSRead infoFile.fileId)
                             (Project.LoadProject infoFile)
-                            Project.decodeProject
+                            JsonData.decodeProject
                             credentials
                         )
                     )
@@ -266,7 +263,7 @@ view model =
         getDecoBtn =
             div [class "panel_deconnect"] [button
                 [onClick (Asking AskLogOut), class "button_topsnap"]
-                [text "Déconnexion"]
+                [iconExit]
                 ]
         decoBtn = case model of
             Guest guest ->

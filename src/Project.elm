@@ -1,6 +1,8 @@
-module Project exposing(Model, Msg(..), createNewProject, decodeProject, encodeProject, init, update, view)
+module Project exposing(Model, Msg(..), createNewProject, init, update, view)
 
 import Api exposing (..)
+import Graphics exposing (..)
+import JsonData exposing (..)
 
 import Html exposing (Html, button, div, input, label, p, span, text, textarea)
 import Html.Attributes exposing (..)
@@ -32,25 +34,6 @@ type ProjectPhase
     --| DescEditing
     --
 
-type ProjectTaskStatus
-    = Planned
-    | Wip
-    | Closed
-
-type alias ProjectTask =
-    { title : String
-    , id : Int
-    , parent : Int
-    , status : ProjectTaskStatus
-    , desc : String
-    }
-
-type alias ProjectBase =
-    { desc : String
-    , lastId : Int
-    , tasks : List ProjectTask
-    }
-
 type alias Model =
     { apiCredentials : ApiCredentials
     , infoFile : InfoFile
@@ -75,74 +58,6 @@ createNewProject desc =
 handleError : Model -> ProjectPhase -> Http.Error -> (Model, Cmd Msg)
 handleError model phase error =
     ({model | phase = Failing (ProjectError phase (httpErrorToString error))}, Cmd.none)
-
--- JSON DECODE
-
-decodeProjectTask : Decoder ProjectTask
-decodeProjectTask =
-    let
-        getProjectTaskStatus status =
-            case status of
-                "Planned" -> Planned
-                "Wip" -> Wip
-                _ -> Closed
-    in
-    JD.map5 ProjectTask
-        (field "title" string)
-        (field "id" int)
-        (field "parent" int)
-        (field "status" (JD.map getProjectTaskStatus string))
-        (field "desc" string)
-
-decodeProject : Decoder ProjectBase
-decodeProject =
-    JD.map3 ProjectBase
-        (field "desc" JD.string)
-        (field "lastId" int)
-        (field "tasks" (list decodeProjectTask))
-
-decodePartialHome : Decoder (List InfoFile)
-decodePartialHome =
-    (field "projects" (list decodeInfoFile))
-
--- JSON ENCODE
-
-encodeProjectTask : ProjectTask -> JE.Value
-encodeProjectTask task =
-    let
-        encodeProjectTaskStatus status =
-            case status of
-                Planned -> "Planned"
-                Wip -> "Wip"
-                Closed -> "Closed"
-    in
-    JE.object
-        [ ("title", JE.string task.title)
-        , ("id", JE.int task.id)
-        , ("parent", JE.int task.parent)
-        , ("status", JE.string (encodeProjectTaskStatus task.status))
-        , ("desc", JE.string task.desc)
-        ]
-
-encodeProject : ProjectBase -> JE.Value
-encodeProject base =
-    JE.object
-        [ ("desc", JE.string base.desc)
-        , ("lastId", JE.int base.lastId)
-        , ("tasks", JE.list encodeProjectTask base.tasks)
-        ]
-
-encodePartialHome : List InfoFile -> JE.Value
-encodePartialHome projects =
-    let
-        encodeInfoFile : InfoFile -> JE.Value
-        encodeInfoFile infoFile =
-            JE.object
-                [ ("id", JE.string infoFile.fileId)
-                , ("name", JE.string infoFile.name)
-                ]
-    in
-    JE.object [ ("projects", JE.list encodeInfoFile projects) ]
 
 -- UPDATE
 
@@ -181,7 +96,7 @@ update msg model =
                     , apiReadFile (FSRead infoFile.fileId) (LoadProject infoFile) decodeProject model.apiCredentials)
                 NameSaving _ ->
                     ( {model | phase = NameSaving 1}
-                    , apiReadFile (FSRead model.homeId) ValidStep1EditName decodePartialHome model.apiCredentials)
+                    , apiReadFile (FSRead model.homeId) ValidStep1EditName JsonData.decodeHome model.apiCredentials)
                 --
                 -- TODO : comme pour le Home, on doit pouvoir réessayer de passer les commandes
                 --
@@ -191,7 +106,7 @@ update msg model =
         UpdateEditName value -> ({model | tmpName = value}, Cmd.none)
         SaveEditName ->
             ( {model | phase = NameSaving 1}
-            , apiReadFile (FSRead model.homeId) ValidStep1EditName decodePartialHome model.apiCredentials)
+            , apiReadFile (FSRead model.homeId) ValidStep1EditName JsonData.decodeHome model.apiCredentials)
         ValidStep1EditName result ->
             case result of
                 Ok projects ->
@@ -201,7 +116,7 @@ update msg model =
                                 {infoFile | name = model.tmpName}
                             else infoFile
                         modProjects = List.map letChangeName projects
-                        homeValue = encodePartialHome modProjects
+                        homeValue = JsonData.encodeHome modProjects
                     in
                     ( {model | phase = NameSaving 2}
                     , apiUpdateFile (FSUpdate model.homeId homeValue) ValidStep2EditName model.apiCredentials)
@@ -238,8 +153,8 @@ view model =
                     ]
                 Viewing ->
                     [ span [] [text model.infoFile.name]
-                    , button [onClick (GoToHome model.apiCredentials), class "button_topsnap"] [text "Fermer"]
-                    , button [onClick AskEditName, class "button_topsnap"] [text "Renommer"]
+                    , button [onClick (GoToHome model.apiCredentials), class "button_topsnap"] [iconClose]
+                    , button [onClick AskEditName, class "button_topsnap"] [iconEdit]
                     ]
                 NameEditing -> [span [] [text model.infoFile.name]]
                 NameSaving _ -> [span [] [text "Mise à jour du nom du projet"]]
@@ -253,24 +168,29 @@ view model =
             Loading _ -> div [class "waiter"] [text "Chargement du projet en cours, veuillez patienter"]
             Failing error -> div [class "error"] [text error.info]
             Viewing ->
+                if (String.isEmpty (String.trim model.base.desc)) then div [] [text "(Description absente)"]
+                else div [] [text model.base.desc]
                 --
-                -- TODO : affichage standard du projet ici
+                -- TODO : affichage des données globales
                 --
-                div [] [text "(Votre projet, ici !!!!!)"]
+                -- TODO : affichage de la liste des tâches
+                --
                 --
             NameEditing ->
-                div []
-                    [ label [for "project_name"] [text "Nom du projet : "]
-                    , input
-                        [ id "project_name"
-                        , value model.tmpName
-                        , onInput UpdateEditName
-                        , maxlength 20
-                        , style "width" "200px"
+                p []
+                    [ span [] [label [for "project_name"] [text "Nom du projet : "]]
+                    , span [style "display" "inline-block"]
+                        [ input
+                            [ id "project_name"
+                            , value model.tmpName
+                            , onInput UpdateEditName
+                            , maxlength 20
+                            , style "width" "170px"
+                            ]
+                            []
+                        , button [onClick CancelEditName, class "button_round"] [iconClose]
+                        , button [onClick SaveEditName, class "button_round"] [iconValid]
                         ]
-                        []
-                    , button [onClick CancelEditName, class "button"] [text "Annuler"]
-                    , button [onClick SaveEditName, class "button"] [text "Valider"]
                     ]
             NameSaving step ->
                 case step of

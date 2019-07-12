@@ -15,10 +15,9 @@ module Api exposing
     , decodeInfoFile
     )
 
-import Array exposing (Array)
 import Bytes.Encode as BE
 import Json.Decode as JD
-import Json.Decode exposing (Decoder, array, decodeValue, errorToString, field, int, string)
+import Json.Decode exposing (Decoder, decodeValue, errorToString, field, int, list, string)
 import Json.Encode as JE
 import Http
 import Url
@@ -93,9 +92,9 @@ decodeInfoFile : Decoder InfoFile
 decodeInfoFile =
     JD.map2 InfoFile (field "id" string) (field "name" string)
 
-decodeListFiles : Decoder (Array InfoFile)
+decodeListFiles : Decoder (List InfoFile)
 decodeListFiles =
-    field "files" (array decodeInfoFile)
+    field "files" (list decodeInfoFile)
 
 decodeUploadFile : Decoder String
 decodeUploadFile =
@@ -103,7 +102,7 @@ decodeUploadFile =
 
 -- API REQUEST
 
-apiGetListFiles : FileSelector -> (Result Http.Error (Array InfoFile) -> msg) -> ApiCredentials -> Cmd msg
+apiGetListFiles : FileSelector -> (Result Http.Error (List InfoFile) -> msg) -> ApiCredentials -> Cmd msg
 apiGetListFiles selector message credentials =
     makeRequest ListFiles selector message decodeListFiles credentials.token credentials.apiKey
 
