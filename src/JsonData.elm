@@ -3,14 +3,14 @@ module JsonData exposing (..)
 import Api exposing (FileId, decodeInfoFile)
 
 import Json.Decode as JD
-import Json.Decode exposing (Decoder, field, int, list, string)
+import Json.Decode exposing (Decoder, dict, field, int, list, string)
 import Json.Encode as JE
 
 -- TYPES
 
 type alias ProjectBase =
     { desc : String
-    , lastId : Int
+    , nextId : Int
     , tasks : List ProjectTask
     }
 
@@ -29,6 +29,7 @@ type alias ProjectTask =
     { title : String
     , id : Int
     , parent : Int
+    , order : Int
     , status : ProjectTaskStatus
     , desc : String
     }
@@ -55,10 +56,11 @@ decodeProjectTask =
                 "Wip" -> Wip
                 _ -> Closed
     in
-    JD.map5 ProjectTask
+    JD.map6 ProjectTask
         (field "title" string)
         (field "id" int)
         (field "parent" int)
+        (field "order" int)
         (field "status" (JD.map getProjectTaskStatus string))
         (field "desc" string)
 
@@ -66,7 +68,7 @@ decodeProject : Decoder ProjectBase
 decodeProject =
     JD.map3 ProjectBase
         (field "desc" JD.string)
-        (field "lastId" int)
+        (field "nextId" int)
         (field "tasks" (list decodeProjectTask))
 
 -- JSON ENCODE
@@ -77,7 +79,7 @@ encodeHome projects =
         encodeProjectInfo : ProjectInfo -> JE.Value
         encodeProjectInfo projectInfo =
             JE.object
-                [ ("id", JE.string projectInfo.fileId)
+                [ ("fileId", JE.string projectInfo.fileId)
                 , ("name", JE.string projectInfo.name)
                 , ("values", JE.list JE.int projectInfo.values)
                 ]
@@ -97,6 +99,7 @@ encodeProjectTask task =
         [ ("title", JE.string task.title)
         , ("id", JE.int task.id)
         , ("parent", JE.int task.parent)
+        , ("order", JE.int task.order)
         , ("status", JE.string (encodeProjectTaskStatus task.status))
         , ("desc", JE.string task.desc)
         ]
@@ -105,6 +108,6 @@ encodeProject : ProjectBase -> JE.Value
 encodeProject base =
     JE.object
         [ ("desc", JE.string base.desc)
-        , ("lastId", JE.int base.lastId)
+        , ("nextId", JE.int base.nextId)
         , ("tasks", JE.list encodeProjectTask base.tasks)
         ]

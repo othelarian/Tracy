@@ -10,13 +10,12 @@ import Dict
 import Html exposing (Html, a, button, div, input, label, p, span, text, textarea)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput)
+import Html.Extra as Html
 import Http
 import Json.Decode as JD
 import Json.Encode as JE
 import Random
 import Task
-
-import Debug
 
 -- MODEL
 
@@ -240,12 +239,12 @@ view model  =
                 Filling -> [text "Importation ..."]
                 Listing addStatus ->
                     case addStatus of
-                        True -> [ span [] [text "Ajout d'un nouveau projet"] ]
+                        True -> [ span [] [text "Ajout d'un projet"] ]
                         False ->
                             [ span [] [text "Liste des Projets"]
                             , button [onClick AddProject, class "button_topsnap"] [iconAdd]
                             ]
-                Creating _ -> [text "Création du projet en cours ..."]
+                Creating _ -> [text "Création du projet ..."]
                 Updating _ -> [text "Mise à jour de la racine ..."]
                 Removing _ _ -> [text "Suppression du projet ..."]
             )
@@ -303,25 +302,35 @@ viewProject credentials projectInfo =
     let
         valuesDict = Dict.fromList (List.indexedMap Tuple.pair projectInfo.values)
         total = List.sum projectInfo.values
+        getValueString id = String.fromInt (getValue id)
         getValue id = case (Dict.get id valuesDict) of
-            Just value -> String.fromInt value
-            Nothing -> "0"
+            Just value -> value
+            Nothing -> 0
     in
     div [class "project_box"]
         [ a [onClick (GoToProject (projectInfo, credentials))] [text projectInfo.name]
         , button [onClick (RemoveProject False projectInfo), class "button_round"] [iconClose]
-        , div [class "project_progress"]
-            [ span [class "round_box done_color"] [text (getValue 0)]
-            , span [class "round_box wip_color"] [text (getValue 1)]
-            , span [class "round_box wait_color"] [text (getValue 2)]
-            , span [class "round_box total_color"] [text (String.fromInt total)]
-            ]
+        , (if total > 0 then
+            if (getValue 2) == total then
+                --
+                -- TODO : afficher juste le nombre total de tâches réalisées
+                --
+                Html.nothing
+                --
+            else
+                div [class "project_progress"]
+                    [ span [class "round_box done_color"] [text (getValueString 0)]
+                    , span [class "round_box wip_color"] [text (getValueString 1)]
+                    , span [class "round_box wait_color"] [text (getValueString 2)]
+                    , span [class "round_box total_color"] [text (String.fromInt total)]
+                    ]
+            else Html.nothing)
         , (if total > 0 then
             --
             -- TODO : insérer un diagramme en barres sommées
             --
-            div [] [text "(future barre ici"]
+            div [] [text "(future barre ici)"]
             --
-        else text "")
+        else Html.nothing)
         , p [] [text "(Statut du projet, à venir)"]
         ]

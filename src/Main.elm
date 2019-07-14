@@ -19,15 +19,17 @@ import Json.Decode exposing (Decoder, array, decodeValue, errorToString, field, 
 import Json.Encode as JE
 
 
--- WIP : page d'accueil d'un projet, avec son nom et sa description
--- WIP : faire en sorte de pouvoir modifier la description
+-- TODO : revoir l'affichage d'un projet dans le Home pour les indicateurs
 
--- TODO : lister les tâches d'un projet
--- TODO : ajouter une tâche
+-- TODO : dans Project intégrer les indicateurs
+
+-- WIP : lister les tâches d'un projet
+-- WIP : ajouter une tâche
 -- TODO : faire évoluer une tâche
 -- TODO : supprimer une tâche
 -- TODO : lier une tâche à une tâche parente
 -- TODO : déplacer une tâche dans une tâche parente
+-- TODO : ordonner manuellement les tâches
 
 -- MAIN
 
@@ -177,13 +179,13 @@ update msg model =
                             , Cmd.map HomeMsg (apiGetListFiles FSNone Home.Check newCredentials))
         (HomeMsg subMsg, Home home) ->
             case subMsg of
-                Home.GoToProject (infoFile, credentials) ->
-                    (Project (Project.init credentials infoFile home.homeId home.testShow)
+                Home.GoToProject (projectInfo, credentials) ->
+                    (Project (Project.init credentials projectInfo home.homeId home.testShow)
                     , Cmd.map
                         ProjectMsg
                         (apiReadFile
-                            (FSRead infoFile.fileId)
-                            (Project.LoadProject infoFile)
+                            (FSRead projectInfo.fileId)
+                            (Project.LoadProject projectInfo)
                             JsonData.decodeProject
                             credentials
                         )
