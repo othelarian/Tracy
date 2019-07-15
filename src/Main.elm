@@ -19,17 +19,18 @@ import Json.Decode exposing (Decoder, array, decodeValue, errorToString, field, 
 import Json.Encode as JE
 
 
--- TODO : revoir l'affichage d'un projet dans le Home pour les indicateurs
+-- WIP : revoir l'affichage d'un projet dans le Home pour les indicateurs
 
 -- TODO : dans Project intégrer les indicateurs
 
 -- WIP : lister les tâches d'un projet
 -- WIP : ajouter une tâche
--- TODO : faire évoluer une tâche
--- TODO : supprimer une tâche
+-- |----> normalement, c'est bon, mais à vérifier dans le cadre d'une sous-tâche
+-- WIP : faire évoluer une tâche
 -- TODO : lier une tâche à une tâche parente
 -- TODO : déplacer une tâche dans une tâche parente
--- TODO : ordonner manuellement les tâches
+-- WIP : ordonner manuellement les tâches
+-- |----> le système de gestion de l'ordre est en place, manque le changement de place
 
 -- MAIN
 

@@ -28,9 +28,14 @@ type ProjectTaskStatus
     | Wip
     | Closed
 
+type ProjectTaskMode
+    = ModeView
+    | ModeEdit
+    | ModeRemove
+
 type alias ProjectTask =
     { opened : Bool
-    , editing : Bool
+    , mode : ProjectTaskMode
     , tmpTitle : String
     , tmpDesc : String
     , title : String
@@ -46,7 +51,7 @@ generateTask : Bool -> String -> String -> ProjectTask
 generateTask init title parentId =
     ProjectTask
         (if init then True else False)
-        (if init then True else False)
+        (if init then ModeEdit else ModeView)
         title
         ""
         title
@@ -77,7 +82,7 @@ decodeProjectTask =
                 "Wip" -> Wip
                 _ -> Closed
     in
-    JD.map5 (ProjectTask False False "" "")
+    JD.map5 (ProjectTask False ModeView "" "")
         (field "title" string)
         (field "parentId" string)
         (field "status" (JD.map getProjectTaskStatus string))

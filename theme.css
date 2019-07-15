@@ -10,6 +10,8 @@ textarea {
     resize: none;
 }
 
+/* BUTTONS CLASSES */
+
 .button {
     border: solid 1px #0099ff;
     border-radius: 10px;
@@ -64,9 +66,9 @@ textarea {
     stroke: #0099ff;
 }
 
-.centered {
-    text-align: center;
-}
+/* UTILS CLASSES */
+
+.centered { text-align: center; }
 
 .core {
     margin: auto;
@@ -85,25 +87,23 @@ div.error {
     margin-bottom: 10px;
 }
 
-.hide {
-    display: none;
-}
+.hide { display: none; }
 
 .iconsLine, .iconBlock {
     stroke-width: 2;
     stroke: white;
 }
-.iconsLine {
-    fill: transparent;
-}
+.iconsLine { fill: transparent; }
 
-.iconsBlock {
-    fill: white;
-}
+.iconsBlock { fill: white; }
 
-.panel_connect {
-    text-align: center;
-}
+.round_box { border-radius: 10px; }
+
+.waiter { text-align: center; }
+
+/* CONNECTIONS CLASSES */
+
+.panel_connect { text-align: center; }
 
 .panel_deconnect {
     width: 100px;
@@ -113,6 +113,8 @@ div.error {
     text-align: center;
     z-index: 1;
 }
+
+/* PROJECT CLASSES */
 
 .project_grid {
     margin: auto;
@@ -146,25 +148,26 @@ div.error {
     color: white;
 }
 
-.project_progress > .done_color {
-    background: #0099ff;
+/* TASKS CLASSES */
+
+.task_bar {
+    height: 22px;
+    padding-left: 5px;
 }
 
-.project_progress > .wait_color {
-    background: #99ccff;
+.task_bar > button {
+    float: right;
 }
 
-.project_progress > .wip_color {
-    background: #77aaff;
-}
+/* STATUS COLORS */
 
-.project_progress > .total_color {
-    background: black;
-}
+.done_color { background: #0099ff; }
 
-.round_box {
-    border-radius: 10px;
-}
+.wait_color { background: #99ccff; }
+
+.wip_color { background: #77aaff; }
+
+.total_color { background: black; }
 
 .zone_status {
     width: 60%;
@@ -184,6 +187,8 @@ div.error {
     margin-left: 5px;
 }
 
+/* TESTS CLASSES (DO NOT ERASE, ALWAYS VALID!) */
+
 .zone_test {
     width: 100%;
     text-align: center;
@@ -192,9 +197,7 @@ div.error {
     bottom: 0;
 }
 
-.waiter {
-    text-align: center;
-}
+/* MEDIA QUERIES */
 
 @media only screen and (max-width: 1150px) {
     .project_grid {

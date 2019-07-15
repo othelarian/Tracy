@@ -6,7 +6,7 @@ import JsonData exposing (..)
 
 import Array exposing (Array)
 import Dict exposing (Dict)
-import Html exposing (Html, button, div, hr, input, label, p, span, text, textarea)
+import Html exposing (Html, button, div, hr, input, label, option, p, select, span, text, textarea)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput)
 import Html.Extra as Html
@@ -100,6 +100,32 @@ handleUpdateProject model =
     ( {model | phase = Saving 3, base = newBase, projectInfo = newProjectInfo}
     , apiUpdateFile (FSUpdate model.projectInfo.fileId projectValue) ValidStep3Edit model.apiCredentials)
 
+handleUpdateTask : String -> Model -> Msg -> (Model, Cmd Msg)
+handleUpdateTask taskId model msg =
+    case Dict.get taskId model.base.tasks of
+        Just task ->
+            let
+                updateTask maybe = case maybe of
+                    Just oldTask ->
+                        case msg of
+                            OpenTask _ -> Just {oldTask | opened = not task.opened}
+                            CancelTask _ -> Just {oldTask | mode = ModeView}
+                            --
+                            --
+                            --
+                            UpdateTaskTitle _ newTitle -> Just {oldTask | tmpTitle = newTitle}
+                            UpdateTaskDesc _ newDesc -> Just {oldTask | tmpDesc = newDesc}
+                            --
+                            --
+                            RemoveTask _ -> Just {oldTask | mode = ModeRemove}
+                            _ -> Just oldTask
+                    Nothing -> Nothing
+                newTasks = Dict.update taskId updateTask model.base.tasks
+                oldBase = model.base
+            in
+            ({model | base = {oldBase | tasks = newTasks}, tmpWaitSave = True}, Cmd.none)
+        Nothing -> (model, Cmd.none)
+
 -- UPDATE
 
 type Msg
@@ -115,11 +141,14 @@ type Msg
     | ValidStep3Edit (Result Http.Error String)
     | AddTask String
     | OpenTask String
-    | ValidTask
-    | EditTask
-    | UpdateTaskTitle String
+    | CancelTask String
+    | ValidTask String
+    | EditTask String
+    | UpdateTaskTitle String String
+    | UpdateTaskDesc String String
     | MoveTask
-    | RemoveTask
+    | RemoveTask String
+    | DeleteTask String
     | GoToHome ApiCredentials
 
 update : Msg -> Model -> (Model, Cmd Msg)
@@ -197,47 +226,47 @@ update msg model =
                         newTasks = Dict.update parentId updateParent oldBase.tasks
                     in
                     ({newModel | base = {newBase | tasks = newTasks}} , Cmd.none)
-        OpenTask taskId ->
-            case Dict.get taskId model.base.tasks of
-                Just task ->
-                    let
-                        updateTask maybe = case maybe of
-                            Just oldTask -> Just {oldTask | opened = not task.opened}
-                            Nothing -> Nothing
-                        newTasks = Dict.update taskId updateTask model.base.tasks
-                        oldBase = model.base
-                    in
-                    ({model | base = {oldBase | tasks = newTasks}}, Cmd.none)
-                Nothing -> (model, Cmd.none)
-        ValidTask ->
+        OpenTask taskId -> handleUpdateTask taskId model msg
+        CancelTask taskId -> handleUpdateTask taskId model msg
+        ValidTask taskId ->
             --
             -- TODO : plus compliqué que prévu
             --
             (model, Cmd.none)
             --
-        EditTask ->
+        EditTask taskId ->
             --
             --
             --
             (model, Cmd.none)
             --
-        UpdateTaskTitle newTitle ->
-            --
-            --
-            --
-            (model, Cmd.none)
-            --
+        UpdateTaskTitle taskId newTitle -> handleUpdateTask taskId model msg
+        UpdateTaskDesc taskId newDesc -> handleUpdateTask taskId model msg
         MoveTask ->
             --
             --
             (model, Cmd.none)
             --
-        RemoveTask ->
-            --
-            --
-            --
-            (model, Cmd.none)
-            --
+        RemoveTask taskId -> handleUpdateTask taskId model msg
+        DeleteTask taskId ->
+            case Dict.get taskId model.base.tasks of
+                Just task ->
+                    let
+                        valueId = case task.status of
+                            Planned -> 0
+                            Wip -> 1
+                            Closed -> 2
+                        oldValue = case Array.get valueId model.projectInfo.values of
+                            Just value -> value
+                            Nothing -> 0
+                        newValues = Array.set valueId (oldValue-1) model.projectInfo.values
+                        oldProjectInfo = model.projectInfo
+                        newProjectInfo = {oldProjectInfo | values = newValues}
+                        newTasks = Dict.remove taskId model.base.tasks
+                        oldBase = model.base
+                    in
+                    ({model | projectInfo = newProjectInfo, base = {oldBase | tasks = newTasks}}, Cmd.none)
+                Nothing -> (model, Cmd.none)
         GoToHome _ -> (model, Cmd.none)
 
 -- VIEW
@@ -295,8 +324,7 @@ view model =
                             , onInput UpdateEditName
                             , maxlength 20
                             , style "width" "170px"
-                            ]
-                            []
+                            ] []
                         ]
                     , p [] [label [for "project_desc"] [text "Description :"]]
                     , textarea
@@ -326,22 +354,74 @@ viewTask : Dict String ProjectTask -> String -> Html Msg
 viewTask tasks taskId =
     case Dict.get taskId tasks of
         Just task ->
-            --
-            --
-            --
+            let
+                statusColor = case task.status of
+                    Planned -> "wait_color"
+                    Wip -> "wip_color"
+                    Closed -> "done_color"
+                taskClasses = "task_bar round_box "++statusColor
+                --
+                --
+                (actions, buttons, content) = case task.mode of
+                    ModeEdit ->
+                        ( [class taskClasses]
+                        ,
+                            [ button [onClick (ValidTask taskId), class "button_round"] [iconValid]
+                            --
+                            , button [onClick (CancelTask taskId), class "button_round"] [iconClose]
+                            --
+                            ]
+                        , [
+                            --
+                            -- TODO : ajouter le textarea pour la description
+                            --
+                        ])
+                        --
+                    ModeView ->
+                        --
+                        -- TODO : si ouverte, n'est pas déplaçable, sinon, la tâche est draggable
+                        --
+                        ( (class taskClasses)::[onClick (OpenTask taskId)]
+                        --
+                        , [ button [onClick (RemoveTask taskId), class "button_round"] [iconClose]
+                        , button [onClick (EditTask taskId), class "button_round"] [iconEdit]
+                        --
+                        -- TODO : sélecteur pour le statut
+                        --
+                        , select []
+                            [ option [] [text "Attente"]
+                            , option [] [text "En cours"]
+                            , option [] [text "Terminée"]
+                            ]
+                        --
+                        --
+                        ]
+                        , [
+                            --
+                            div [] [text "(description de la tâche)"]
+                            , div [] [text "(liste des sous tâches)"]
+                            --
+                            --
+                        ])
+                    ModeRemove ->
+                        ([class taskClasses], [],
+                            [ p [class "centered"] [text "Êtes-vous sûr de vouloir supprimer cette tâche ?"]
+                            , p [class "centered"]
+                                [ button [onClick (CancelTask taskId), class "button_round"] [iconClose]
+                                , button [onClick (DeleteTask taskId), class "button_round"] [iconValid]
+                                ]
+                        ])
+            in
             div []
-                [ div [onClick (OpenTask taskId), class "button"]
-                    [ case task.editing of
-                        True -> input [value task.tmpTitle] []
-                        False -> text task.title
-                    ]
-                --
-                --
-                , div [] [text "(description de la tâche)"]
-                , div [] [text "(liste des sous tâches)"]
-            ]
-            --
-            --
-            --
-        Nothing -> Html.nothing
-    
+                (div actions
+                    ((case task.mode of
+                        ModeEdit ->
+                            input
+                                [ value task.tmpTitle
+                                , onInput (UpdateTaskTitle taskId)
+                                , maxlength 25
+                                , style "width" "270px"
+                                ] []
+                        _ -> text task.title
+                    )::buttons)::content)
+        Nothing -> Html.nothing    
