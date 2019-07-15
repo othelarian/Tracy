@@ -6,7 +6,7 @@ import JsonData
 import JsonData exposing (ProjectInfo)
 import Project exposing (createNewProject, init)
 
-import Dict
+import Array
 import Html exposing (Html, a, button, div, input, label, p, span, text, textarea)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput)
@@ -178,7 +178,7 @@ update msg model =
                                 lastProject =
                                     case (List.head model.projects) of
                                         Just projectInfo -> projectInfo
-                                        Nothing -> ProjectInfo "" "" [0,0,0]
+                                        Nothing -> ProjectInfo "" "" (Array.fromList [0,0,0])
                             in
                             (model, Task.perform GoToProject (Task.succeed (lastProject, model.apiCredentials)))
                 Err error -> handleError model model.phase error
@@ -192,7 +192,7 @@ update msg model =
             case result of
                 Ok fileId ->
                     let
-                        projectInfo = ProjectInfo fileId model.newProjectName [0,0,0]
+                        projectInfo = ProjectInfo fileId model.newProjectName (Array.fromList [0,0,0])
                         newArrayProjects = projectInfo::model.projects
                         newModel = {model | projects = newArrayProjects}
                         newJson = JsonData.encodeHome newModel.projects
@@ -300,10 +300,9 @@ view model  =
 viewProject : ApiCredentials -> ProjectInfo -> Html Msg
 viewProject credentials projectInfo =
     let
-        valuesDict = Dict.fromList (List.indexedMap Tuple.pair projectInfo.values)
-        total = List.sum projectInfo.values
+        total = Array.foldl (+) 0 projectInfo.values
         getValueString id = String.fromInt (getValue id)
-        getValue id = case (Dict.get id valuesDict) of
+        getValue id = case (Array.get id projectInfo.values) of
             Just value -> value
             Nothing -> 0
     in

@@ -3,8 +3,8 @@ module Project exposing(Model, Msg(..), createNewProject, init, update, view)
 import Api exposing (..)
 import Graphics exposing (..)
 import JsonData exposing (..)
-import TracyTask
 
+import Array exposing (Array)
 import Dict exposing (Dict)
 import Html exposing (Html, button, div, hr, input, label, p, span, text, textarea)
 import Html.Attributes exposing (..)
@@ -47,7 +47,6 @@ type alias Model =
     , tmpWaitSave : Bool
     , phase : ProjectPhase
     , base : ProjectBase
-    , tasks : Dict Int TracyTask.Model
     , testValue : String
     , testShow : Bool
     }
@@ -62,8 +61,7 @@ init apiCredentials projectInfo homeId testShow =
         ""
         False
         (Loading projectInfo)
-        (ProjectBase "" 0 [])
-        Dict.empty
+        (ProjectBase "" 0 Dict.empty Array.empty)
         ""
         testShow
 
@@ -71,7 +69,7 @@ init apiCredentials projectInfo homeId testShow =
 
 createNewProject : String -> ProjectBase
 createNewProject desc =
-    ProjectBase desc 0 []
+    ProjectBase desc 0 Dict.empty Array.empty
 
 handleError : Model -> ProjectPhase -> Http.Error -> (Model, Cmd Msg)
 handleError model phase error =
@@ -115,7 +113,8 @@ type Msg
     | ValidStep1Edit (Result Http.Error (List ProjectInfo))
     | ValidStep2Edit (Result Http.Error String)
     | ValidStep3Edit (Result Http.Error String)
-    | AddTask Int
+    | AddTask String
+    | OpenTask String
     | ValidTask
     | EditTask
     | UpdateTaskTitle String
@@ -129,9 +128,7 @@ update msg model =
         LoadProject infoFile result ->
             case result of
                 Ok projectBase ->
-                    let newDictTasks = TracyTask.populate projectBase.tasks -1 in
-                    ( {model | phase = Viewing , base = projectBase , tmpDesc = projectBase.desc, tasks = newDictTasks}
-                    , Cmd.none)
+                    ({model | phase = Viewing , base = projectBase , tmpDesc = projectBase.desc}, Cmd.none)
                 Err error -> handleError model model.phase error
         Retry error ->
             case error.phase of
@@ -173,21 +170,45 @@ update msg model =
                 Err error -> handleError model (Saving 3) error
         AddTask parentId ->
             let
-                --
-                -- TODO : prendre en compte l'ordre
-                --
-                --
-                newTask = ProjectTask "Nouvelle tâche" oldBase.nextId parentId 0 JsonData.Planned ""
                 oldBase = model.base
-                newBase = {oldBase | nextId = (oldBase.nextId + 1), tasks = (newTask::oldBase.tasks)}
-                newValues = case model.projectInfo.values of
-                    v1::tail -> (v1+1)::tail
-                    _ -> [1,0,0]
+                newTask = JsonData.generateTask True ("Nouvelle tâche "++(String.fromInt oldBase.nextId)) parentId
+                newBase = {oldBase | nextId = (oldBase.nextId + 1), tasks = Dict.insert (String.fromInt oldBase.nextId) newTask oldBase.tasks}
+                oldValue = case Array.get 0 model.projectInfo.values of
+                    Just value -> value
+                    Nothing -> 0
+                newValues = Array.set 0 (oldValue+1) model.projectInfo.values
                 oldProjectInfo = model.projectInfo
                 newProjectInfo = {oldProjectInfo | values = newValues}
-                newDictTasks = Dict.insert oldBase.nextId (TracyTask.generate newTask) model.tasks
+                newModel = {model | projectInfo = newProjectInfo, tmpWaitSave = True}
             in
-            ({model | base = newBase, projectInfo = newProjectInfo, tasks = newDictTasks, tmpWaitSave = True} , Cmd.none)
+            case parentId of
+                "-1" ->
+                    let newOrder = Array.push (String.fromInt oldBase.nextId) oldBase.topLevel in
+                    ({newModel | base = {newBase | topLevel = newOrder}}, Cmd.none)
+                _ ->
+                    let
+                        oldParent = case Dict.get parentId oldBase.tasks of
+                            Just task -> task
+                            Nothing -> JsonData.generateTask False "" ""
+                        newOrder = Array.push (String.fromInt oldBase.nextId) oldParent.subTasks
+                        updateParent maybe = case maybe of
+                            Just parent -> Just {parent | subTasks = newOrder}
+                            Nothing -> Nothing
+                        newTasks = Dict.update parentId updateParent oldBase.tasks
+                    in
+                    ({newModel | base = {newBase | tasks = newTasks}} , Cmd.none)
+        OpenTask taskId ->
+            case Dict.get taskId model.base.tasks of
+                Just task ->
+                    let
+                        updateTask maybe = case maybe of
+                            Just oldTask -> Just {oldTask | opened = not task.opened}
+                            Nothing -> Nothing
+                        newTasks = Dict.update taskId updateTask model.base.tasks
+                        oldBase = model.base
+                    in
+                    ({model | base = {oldBase | tasks = newTasks}}, Cmd.none)
+                Nothing -> (model, Cmd.none)
         ValidTask ->
             --
             -- TODO : plus compliqué que prévu
@@ -261,8 +282,8 @@ view model =
                         else div [] [text model.base.desc]
                         )
                     , hr [] []
-                    , div [] (viewTasks model.tasks -1)
-                    , p [class "centered"] [button [class "button", onClick (AddTask -1)] [text "Ajouter une tâche"]]
+                    , div [] (viewTasks model.base.tasks model.base.topLevel)
+                    , p [class "centered"] [button [class "button", onClick (AddTask "-1")] [text "Ajouter une tâche"]]
                     ]
             Editing ->
                 div []
@@ -297,19 +318,30 @@ view model =
         )
         ]
 
-viewTasks : Dict Int TracyTask.Model -> Int -> List (Html Msg)
-viewTasks tasks parentId =
-    let filteredTasks = Dict.filter (\_ n -> n.parent == parentId) tasks in
-    --
-    -- TODO : pas sûr que ça soit suffisant, à vérifier
-    --
-    --List.map (viewTask tasks) filteredTasks
-    Dict.foldl viewTask [] filteredTasks
-    --
+viewTasks : Dict String ProjectTask -> Array String -> List (Html Msg)
+viewTasks tasks taskIds =
+    Array.map (viewTask tasks) taskIds |> Array.toList
 
-viewTask : Int -> TracyTask.Model ->  -> Html Msg
-viewTask taskId model =
-    --
-    --
-    Html.nothing
-    --
+viewTask : Dict String ProjectTask -> String -> Html Msg
+viewTask tasks taskId =
+    case Dict.get taskId tasks of
+        Just task ->
+            --
+            --
+            --
+            div []
+                [ div [onClick (OpenTask taskId), class "button"]
+                    [ case task.editing of
+                        True -> input [value task.tmpTitle] []
+                        False -> text task.title
+                    ]
+                --
+                --
+                , div [] [text "(description de la tâche)"]
+                , div [] [text "(liste des sous tâches)"]
+            ]
+            --
+            --
+            --
+        Nothing -> Html.nothing
+    
