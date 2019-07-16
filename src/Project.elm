@@ -30,11 +30,7 @@ type alias Step = Int
 type ProjectPhase
     = Loading ProjectInfo
     | Failing ProjectError
-    --
-    -- TODO : viewing va abriter toute les modifications des tâches
-    --
     | Viewing
-    --
     | Editing
     | Saving Step
 
@@ -110,11 +106,11 @@ handleUpdateTask taskId model msg =
                         case msg of
                             OpenTask _ -> Just {oldTask | opened = not task.opened}
                             CancelTask _ -> Just {oldTask | mode = ModeView}
-                            --
-                            --
-                            --
+                            ValidTask _ -> Just {oldTask | mode = ModeView, title = task.tmpTitle, desc = task.tmpDesc}
+                            EditTask _ -> Just {oldTask | mode = ModeEdit, tmpTitle = task.title, tmpDesc = task.desc}
                             UpdateTaskTitle _ newTitle -> Just {oldTask | tmpTitle = newTitle}
                             UpdateTaskDesc _ newDesc -> Just {oldTask | tmpDesc = newDesc}
+                            --
                             --
                             --
                             RemoveTask _ -> Just {oldTask | mode = ModeRemove}
@@ -146,6 +142,7 @@ type Msg
     | EditTask String
     | UpdateTaskTitle String String
     | UpdateTaskDesc String String
+    | UpdateTaskStatus String String
     | MoveTask
     | RemoveTask String
     | DeleteTask String
@@ -228,20 +225,45 @@ update msg model =
                     ({newModel | base = {newBase | tasks = newTasks}} , Cmd.none)
         OpenTask taskId -> handleUpdateTask taskId model msg
         CancelTask taskId -> handleUpdateTask taskId model msg
-        ValidTask taskId ->
-            --
-            -- TODO : plus compliqué que prévu
-            --
-            (model, Cmd.none)
-            --
-        EditTask taskId ->
-            --
-            --
-            --
-            (model, Cmd.none)
-            --
+        ValidTask taskId -> handleUpdateTask taskId model msg
+        EditTask taskId -> handleUpdateTask taskId model msg
         UpdateTaskTitle taskId newTitle -> handleUpdateTask taskId model msg
         UpdateTaskDesc taskId newDesc -> handleUpdateTask taskId model msg
+        UpdateTaskStatus taskId newStatusString ->
+            case Dict.get taskId model.base.tasks of
+                Just task ->
+                    let
+                        newStatus = case newStatusString of
+                            "planned" -> Planned
+                            "wip" -> Wip
+                            "closed" -> Closed
+                            _ -> task.status
+                        oldProjectInfo = model.projectInfo
+                        newProjectInfo =
+                            let
+                                valueId tmpStatus = case tmpStatus of
+                                    Planned -> 0
+                                    Wip -> 1
+                                    Closed -> 2
+                                oldStartValue = case Array.get (valueId task.status) oldProjectInfo.values of
+                                    Just value -> value
+                                    Nothing -> 1
+                                oldEndValue = case Array.get (valueId newStatus) oldProjectInfo.values of
+                                    Just value -> value
+                                    Nothing -> 0
+                                newValues =
+                                    Array.set (valueId task.status) (oldStartValue-1) oldProjectInfo.values
+                                        |> Array.set (valueId newStatus) (oldEndValue+1)
+                            in
+                            {oldProjectInfo | values = newValues}
+                        updateTask maybe = case maybe of
+                            Just oldTask -> Just {oldTask | status = newStatus}
+                            Nothing -> Nothing
+                        newTasks = Dict.update taskId updateTask model.base.tasks
+                        oldBase = model.base
+                    in
+                    ({model | projectInfo = newProjectInfo, base = {oldBase | tasks = newTasks}, tmpWaitSave = True}, Cmd.none)
+                Nothing -> (model, Cmd.none)
         MoveTask ->
             --
             --
@@ -290,29 +312,48 @@ view model =
                 Saving _ -> [span [] [text "Mise à jour du projet"]]
             )
         , (case model.phase of
+            Viewing ->
+                div [class "project_tracker"] (List.append
+                        (let
+                            total = Array.foldl (+) 0 model.projectInfo.values
+                            doneTasks = case Array.get 2 model.projectInfo.values of
+                                Just value -> value
+                                Nothing -> 0
+                        in
+                        if total > 0 then
+                            if total == doneTasks then
+                                [span [class "project_end"] [text ("Vous avez terminé ce projet ! (soit "++(String.fromInt total)++" tâches)")]]
+                            else
+                                let
+                                    getValueString id = String.fromInt (getValue id)
+                                    getValue id = case (Array.get id model.projectInfo.values) of
+                                        Just value -> value
+                                        Nothing -> 0
+                                in
+                                [ progressBar model.projectInfo.values
+                                , div [class "project_progress"]
+                                    [ span [class "round_box wait_color"] [text (getValueString 0)]
+                                    , span [class "round_box wip_color"] [text (getValueString 1)]
+                                    , span [class "round_box done_color"] [text (getValueString 2)]
+                                    , span [class "round_box total_color"] [text (String.fromInt total)]
+                                    ]
+                                ]
+                        else [Html.nothing])
+                    [ button [class "button_bottomsnap", onClick (AddTask "-1")] [iconAdd]
+                    , if model.tmpWaitSave then button [class "button_bottomsnap", onClick SaveEdit] [iconValid] else Html.nothing
+                    , hr [style "clear" "both"] []
+                    ])
+            _ -> Html.nothing
+            )
+        , (case model.phase of
             Loading _ -> div [class "waiter"] [text "Chargement du projet en cours, veuillez patienter"]
             Failing error -> div [class "error"] [text error.info]
             Viewing ->
                 div []
-                    [ div []
-                        --
-                        [],
-                        --
-                        (
-                        --
-                        -- TODO : au lieu d'avoir seulement le bouton de sauvegarde, il faudrait également les indicateurs
-                        --
-                        --
-                        if model.tmpWaitSave then
-                            p [class "centered"] [button [class "button", onClick SaveEdit] [text "Sauvegarder"]]
-                        else Html.nothing
-                        )
-                    , ( if (String.isEmpty (String.trim model.base.desc)) then div [] [text "(Description absente)"]
-                        else div [] [text model.base.desc]
-                        )
+                    [ (div [class "project_desc"] [text
+                        (if (String.isEmpty (String.trim model.base.desc)) then "(Description absente)" else model.base.desc)])
                     , hr [] []
                     , div [] (viewTasks model.base.tasks model.base.topLevel)
-                    , p [class "centered"] [button [class "button", onClick (AddTask "-1")] [text "Ajouter une tâche"]]
                     ]
             Editing ->
                 div []
@@ -323,7 +364,7 @@ view model =
                             , value model.tmpName
                             , onInput UpdateEditName
                             , maxlength 20
-                            , style "width" "170px"
+                            , size 23
                             ] []
                         ]
                     , p [] [label [for "project_desc"] [text "Description :"]]
@@ -360,16 +401,19 @@ viewTask tasks taskId =
                     Wip -> "wip_color"
                     Closed -> "done_color"
                 taskClasses = "task_bar round_box "++statusColor
-                --
-                --
+                statusSelector =
+                    select [class statusColor, onInput (UpdateTaskStatus taskId)]
+                        [ option [class "wait_color", value "planned", selected (task.status == Planned)] [text "Attente"]
+                        , option [class "wip_color", value "wip", selected (task.status == Wip)] [text "En cours"]
+                        , option [class "done_color", value "closed", selected (task.status == Closed)] [text "Terminée"]
+                        ]
                 (actions, buttons, content) = case task.mode of
                     ModeEdit ->
                         ( [class taskClasses]
                         ,
                             [ button [onClick (ValidTask taskId), class "button_round"] [iconValid]
-                            --
                             , button [onClick (CancelTask taskId), class "button_round"] [iconClose]
-                            --
+                            , statusSelector
                             ]
                         , [
                             --
@@ -388,13 +432,7 @@ viewTask tasks taskId =
                         --
                         -- TODO : sélecteur pour le statut
                         --
-                        , select []
-                            [ option [] [text "Attente"]
-                            , option [] [text "En cours"]
-                            , option [] [text "Terminée"]
-                            ]
-                        --
-                        --
+                        , statusSelector
                         ]
                         , [
                             --
@@ -420,7 +458,7 @@ viewTask tasks taskId =
                                 [ value task.tmpTitle
                                 , onInput (UpdateTaskTitle taskId)
                                 , maxlength 25
-                                , style "width" "270px"
+                                , size 28
                                 ] []
                         _ -> text task.title
                     )::buttons)::content)

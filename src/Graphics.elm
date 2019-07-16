@@ -1,5 +1,8 @@
 module Graphics exposing (..)
 
+import Array exposing (Array)
+import Html exposing (Html, div)
+import Html.Attributes as HA
 import Svg exposing (..)
 import Svg.Attributes exposing (..)
 import Svg.Attributes as SA
@@ -36,15 +39,25 @@ iconExit =
         , polyline [class "iconsBlock", points "6,5 6,7 10,7 10,8 13,6 10,4 10,5"] []
         ]
 
-iconLogin : Svg msg
-iconLogin =
-    --
-    -- TODO : l'icone de login
-    --
-    svg [width "30", height "30"] []
-
 iconValid : Svg msg
 iconValid =
     svg
         [width "14", height "14"]
         [polyline [class "iconsLine", points "1,5 5,13 13,1"] []]
+
+progressBar : Array Int -> Html msg
+progressBar values =
+    let
+        getValue id = case Array.get id values of
+            Just value -> value
+            Nothing -> 0
+        total = Array.foldl (+) 0 values
+        donePercent = (String.fromFloat (toFloat (getValue 2) / toFloat total * 100))++"%"
+        wipPercent = (String.fromFloat (toFloat (getValue 1) / toFloat total * 100))++"%"
+        waitPercent = (String.fromFloat (toFloat (getValue 0) / toFloat total * 100))++"%"
+    in
+    div [HA.class "progress_bar"]
+        [ div [class "done_color", HA.style "width" donePercent] []
+        , div [class "wip_color", HA.style "width" wipPercent] []
+        , div [class "wait_color", HA.style "width" waitPercent] []
+        ]

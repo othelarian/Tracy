@@ -261,7 +261,7 @@ view model  =
                                     , value model.newProjectName
                                     , onInput OnNameChange
                                     , maxlength 20
-                                    , style "width" "200px"
+                                    , size 23
                                     ]
                                     []
                                 ]
@@ -309,27 +309,18 @@ viewProject credentials projectInfo =
     div [class "project_box"]
         [ a [onClick (GoToProject (projectInfo, credentials))] [text projectInfo.name]
         , button [onClick (RemoveProject False projectInfo), class "button_round"] [iconClose]
-        , (if total > 0 then
-            if (getValue 2) == total then
-                --
-                -- TODO : afficher juste le nombre total de tâches réalisées
-                --
-                Html.nothing
-                --
-            else
-                div [class "project_progress"]
-                    [ span [class "round_box done_color"] [text (getValueString 0)]
-                    , span [class "round_box wip_color"] [text (getValueString 1)]
-                    , span [class "round_box wait_color"] [text (getValueString 2)]
-                    , span [class "round_box total_color"] [text (String.fromInt total)]
-                    ]
+        , (
+            if total > 0 then
+                if (getValue 2) == total then
+                    div [class "centered project_end"] [text "Bravo ! Vous avez terminé ce projet !"]
+                else
+                    div [class "project_progress"]
+                        [ span [class "round_box wait_color"] [text (getValueString 0)]
+                        , span [class "round_box wip_color"] [text (getValueString 1)]
+                        , span [class "round_box done_color"] [text (getValueString 2)]
+                        , span [class "round_box total_color"] [text (String.fromInt total)]
+                        ]
             else Html.nothing)
-        , (if total > 0 then
-            --
-            -- TODO : insérer un diagramme en barres sommées
-            --
-            div [] [text "(future barre ici)"]
-            --
-        else Html.nothing)
-        , p [] [text "(Statut du projet, à venir)"]
+        , (
+            if (total > 0) && ((getValue 2) < total) then progressBar projectInfo.values else Html.nothing)
         ]

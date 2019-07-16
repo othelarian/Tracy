@@ -19,18 +19,17 @@ import Json.Decode exposing (Decoder, array, decodeValue, errorToString, field, 
 import Json.Encode as JE
 
 
--- WIP : revoir l'affichage d'un projet dans le Home pour les indicateurs
-
--- TODO : dans Project intégrer les indicateurs
-
+-- TODO : transformer les retour à la ligne dans les descriptions par des br
 -- WIP : lister les tâches d'un projet
+-- |----> vérifier que les sous tâches s'affiche correctement
 -- WIP : ajouter une tâche
 -- |----> normalement, c'est bon, mais à vérifier dans le cadre d'une sous-tâche
--- WIP : faire évoluer une tâche
 -- TODO : lier une tâche à une tâche parente
 -- TODO : déplacer une tâche dans une tâche parente
 -- WIP : ordonner manuellement les tâches
 -- |----> le système de gestion de l'ordre est en place, manque le changement de place
+-- TODO : lorsqu'une tâche évolue, il faut qu'elle fasse évoluer la tâche parente aussi, si elle en a une
+
 
 -- MAIN
 
@@ -58,7 +57,7 @@ type alias GuestModel =
 
 guestModel : ApiCredentials -> GuestModel
 guestModel apiCredentials =
-    GuestModel apiCredentials (Login Nothing) "" True
+    GuestModel apiCredentials (Login Nothing) "" False
 
 type Model
     = Guest GuestModel
@@ -148,7 +147,11 @@ update msg model =
         (Asking question, Guest guest) ->
             case question of
                 AskLogIn -> (Guest {guest | phase = Connecting}, ask "Authenticate")
-                AskLogOut -> (Guest guest, ask "SignOut")
+                _ -> (model, Cmd.none)
+        (Asking question, _) ->
+            case question of
+                AskLogOut -> (model, ask "SignOut")
+                _ -> (model, Cmd.none)
         (ReceptionData value, _) ->
             let
                 answer = decodeAnswer value
@@ -251,9 +254,6 @@ subscriptions model =
         [ received ReceptionData
         , testCom TestCom
         , case model of
-            --
-            -- TODO : normalement, Project devrait avoir un truc avec la subscription
-            --
             _ -> Sub.none
         ]
 

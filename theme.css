@@ -1,14 +1,8 @@
-h1 {
-    text-align: center;
-}
+h1 { text-align: center; }
 
-body {
-    margin: 0;
-}
+body { margin: 0; }
 
-textarea {
-    resize: none;
-}
+textarea { resize: none; }
 
 /* BUTTONS CLASSES */
 
@@ -47,9 +41,30 @@ textarea {
     stroke: #0099ff;
 }
 
+.button_bottomsnap {
+    border: solid 1px #0099ff;
+    border-radius: 10px 10px 0 0;
+    margin: auto 5px;
+    background: #0099ff;
+    color: white;
+    padding: 3px;
+}
+.button_bottomsnap:hover {
+    background: white;
+    color: #0099ff;
+}
+.button_bottomsnap:hover > svg > .iconsBlock {
+    stroke: #0099ff;
+    fill: #0099ff;
+}
+.button_bottomsnap:hover > svg > .iconsLine {
+    stroke: #0099ff;
+}
+
 .button_topsnap {
     border: solid 1px #0099ff;
     border-radius: 0 0 10px 10px;
+    margin: auto 5px;
     background: #0099ff;
     color: white;
     padding: 3px;
@@ -97,6 +112,18 @@ div.error {
 
 .iconsBlock { fill: white; }
 
+.progress_bar {
+    width: 96%;
+    margin-top: 10px;
+}
+.progress_bar > div {
+    float: left;
+    margin: 0;
+    padding: 0;
+    border: 0 !important;
+    height: 6px;
+}
+
 .round_box { border-radius: 10px; }
 
 .waiter { text-align: center; }
@@ -106,8 +133,8 @@ div.error {
 .panel_connect { text-align: center; }
 
 .panel_deconnect {
-    width: 100px;
-    position: absolute;
+    width: 50px;
+    position: fixed;
     right: 0;
     top: 0;
     text-align: center;
@@ -142,32 +169,82 @@ div.error {
     float: right;
 }
 
+.project_desc { margin-top: 40px; }
+
+.project_end {
+    margin: 10px;
+    font-size: 1.1rem;
+    font-weight: bold;
+}
+
+.project_progress { margin-top: 5px; }
+
 .project_progress > span {
     margin: auto 2px;
     padding: 1px 8px;
     color: white;
 }
 
+.project_tracker {
+    position: fixed;
+    top: 0;
+    padding-top: 30px;
+    padding-bottom: 10px;
+    background: white;
+    width: 80%;
+    margin: auto;
+}
+
+.project_tracker > .progress_bar { width: calc(100% - 70px); }
+
+.project_tracker > .project_progress { float: left; }
+
+.project_tracker > hr { margin-top: 0; }
+
+.project_tracker > .button_bottomsnap { float: right; }
+
 /* TASKS CLASSES */
 
 .task_bar {
     height: 22px;
     padding-left: 5px;
+    margin: 5px auto;
+}
+.task_bar:hover {
+    background: white;
+    color: black;
 }
 
-.task_bar > button {
-    float: right;
-}
+.task_bar > select { height: 22px; }
+
+.task_bar > input { height: 15px; }
+
+.task_bar > button, .task_bar > select { float: right; }
+
+.task_bar > .button_round { margin-right: 0; }
 
 /* STATUS COLORS */
 
-.done_color { background: #0099ff; }
+.done_color {
+    background: #09f;
+    border: solid 1px #09f;
+    color: white;
+}
 
-.wait_color { background: #99ccff; }
+.wait_color {
+    background: #adf;
+    border: solid 1px #adf;
+}
 
-.wip_color { background: #77aaff; }
+.wip_color {
+    background: #6cf;
+    border: solid 1px #6cf;
+}
 
-.total_color { background: black; }
+.total_color {
+    background: black;
+    border: solid 1px black;
+}
 
 .zone_status {
     width: 60%;
@@ -175,9 +252,10 @@ div.error {
     height: 25px;
     font-weight: bold;
     font-size: 1.1rem;
-    position: absolute;
+    position: fixed;
+    z-index: 2;
     top: 0;
-    left: 0;
+    margin: auto;
     background: white;
     border-bottom: solid #ddd 1px;
     padding: 0 7px;
@@ -193,7 +271,7 @@ div.error {
     width: 100%;
     text-align: center;
     margin: auto;
-    position: absolute;
+    position: fixed;
     bottom: 0;
 }
 
