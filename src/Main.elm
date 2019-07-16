@@ -19,16 +19,13 @@ import Json.Decode exposing (Decoder, array, decodeValue, errorToString, field, 
 import Json.Encode as JE
 
 
--- TODO : transformer les retour à la ligne dans les descriptions par des br
--- WIP : lister les tâches d'un projet
--- |----> vérifier que les sous tâches s'affiche correctement
--- WIP : ajouter une tâche
--- |----> normalement, c'est bon, mais à vérifier dans le cadre d'une sous-tâche
+-- TODO : lors de la suppression d'une tâche avec des sous tâches, il faut AUSSI éliminer les sous tâches
+-- WIP : indicateurs dans une tâche (quand elle a des sous tâches)
+-- WIP : lister les sous tâches d'une tâche
+-- WIP : ajouter une tâche dans une tâche
 -- TODO : lier une tâche à une tâche parente
--- TODO : déplacer une tâche dans une tâche parente
--- WIP : ordonner manuellement les tâches
--- |----> le système de gestion de l'ordre est en place, manque le changement de place
--- TODO : lorsqu'une tâche évolue, il faut qu'elle fasse évoluer la tâche parente aussi, si elle en a une
+-- TODO : déplacer une tâche (ordonnencement et parentée)
+-- WIP : lorsqu'une tâche évolue, il faut qu'elle fasse évoluer la tâche parente aussi, si elle en a une
 
 
 -- MAIN

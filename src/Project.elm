@@ -8,13 +8,13 @@ import Array exposing (Array)
 import Dict exposing (Dict)
 import Html exposing (Html, button, div, hr, input, label, option, p, select, span, text, textarea)
 import Html.Attributes exposing (..)
-import Html.Events exposing (onClick, onInput)
+import Html.Events exposing (onClick, onInput, stopPropagationOn)
 import Html.Extra as Html
 import Http
 import Json.Decode as JD
 import Json.Decode exposing (Decoder, field, int, list, string)
 import Json.Encode as JE
-import Tuple
+import Markdown
 
 import Debug
 
@@ -106,7 +106,8 @@ handleUpdateTask taskId model msg =
                         case msg of
                             OpenTask _ -> Just {oldTask | opened = not task.opened}
                             CancelTask _ -> Just {oldTask | mode = ModeView}
-                            ValidTask _ -> Just {oldTask | mode = ModeView, title = task.tmpTitle, desc = task.tmpDesc}
+                            ValidTask _ ->
+                                Just {oldTask | mode = ModeView, opened = True, title = task.tmpTitle, desc = task.tmpDesc}
                             EditTask _ -> Just {oldTask | mode = ModeEdit, tmpTitle = task.title, tmpDesc = task.desc}
                             UpdateTaskTitle _ newTitle -> Just {oldTask | tmpTitle = newTitle}
                             UpdateTaskDesc _ newDesc -> Just {oldTask | tmpDesc = newDesc}
@@ -232,6 +233,11 @@ update msg model =
         UpdateTaskStatus taskId newStatusString ->
             case Dict.get taskId model.base.tasks of
                 Just task ->
+                    --
+                    --
+                    -- TODO : mise à jour du parent si nécessaire à faire
+                    --
+                    --
                     let
                         newStatus = case newStatusString of
                             "planned" -> Planned
@@ -271,9 +277,47 @@ update msg model =
             --
         RemoveTask taskId -> handleUpdateTask taskId model msg
         DeleteTask taskId ->
+            --
+            --
+            -- TODO : supprimer AUSSI les sous tâches
+            -- TODO : mise à jour des values du parent si besoin
+            --
             case Dict.get taskId model.base.tasks of
                 Just task ->
                     let
+                        --
+                        -- TODO : process pour la suppression de toutes les sous tâches :
+                        -- TODO : faire un foldl récursif pour agréger tous les array de sous tâches
+                        -- TODO : foldl le dict (en fait sur le nouveau array) des tâches en accumulant le nouveau dict au fur et à mesure
+                        --
+                        checkForSub subTaskId = case Dict.get subTaskId model.base.tasks of
+                            Just subTask ->
+                                let subArray = Array.initialize 1 (always subTaskId) in
+                                if (Array.length subTask.subTasks) > 0 then
+                                    foldSubTasks subTask.subTasks |> Array.append subArray
+                                else subArray
+                            Nothing -> Array.empty
+                        foldSubTasks subTasksId =
+                            Array.foldl (\a b -> Array.append (checkForSub a) b) Array.empty subTasksId
+                        allSubTasksId = Array.toList (foldSubTasks task.subTasks)
+                        --
+                        -- TODO : agréger les values pour mettre à jour les values globales et des parents
+                        --
+                        --
+                        checkPurge purgeKey = List.member purgeKey allSubTasksId
+                        purgedTasks = Dict.filter (\n _ -> checkPurge n) model.base.tasks
+                        --
+                        {-if task.parentId /= "-1" then
+                            --
+                            _ = ""
+                            --
+                            --
+                        else
+                            --
+                            _ = ""
+                            --
+                            --
+                        -}
                         valueId = case task.status of
                             Planned -> 0
                             Wip -> 1
@@ -284,7 +328,7 @@ update msg model =
                         newValues = Array.set valueId (oldValue-1) model.projectInfo.values
                         oldProjectInfo = model.projectInfo
                         newProjectInfo = {oldProjectInfo | values = newValues}
-                        newTasks = Dict.remove taskId model.base.tasks
+                        newTasks = Dict.remove taskId purgedTasks
                         oldBase = model.base
                     in
                     ({model | projectInfo = newProjectInfo, base = {oldBase | tasks = newTasks}}, Cmd.none)
@@ -350,8 +394,9 @@ view model =
             Failing error -> div [class "error"] [text error.info]
             Viewing ->
                 div []
-                    [ (div [class "project_desc"] [text
-                        (if (String.isEmpty (String.trim model.base.desc)) then "(Description absente)" else model.base.desc)])
+                    [ (div [class "project_desc"] [
+                        (if (String.isEmpty (String.trim model.base.desc)) then text "(Description absente)"
+                        else Markdown.toHtml [] model.base.desc)])
                     , hr [] []
                     , div [] (viewTasks model.base.tasks model.base.topLevel)
                     ]
@@ -369,7 +414,7 @@ view model =
                         ]
                     , p [] [label [for "project_desc"] [text "Description :"]]
                     , textarea
-                        [id "project_desc", onInput UpdateEditDesc, style "width" "90%", rows 7]
+                        [id "project_desc", onInput UpdateEditDesc, rows 7]
                         [text model.tmpDesc]
                     , p [class "centered"]
                         [ button [onClick CancelEdit, class "button_round"] [iconClose]
@@ -407,40 +452,77 @@ viewTask tasks taskId =
                         , option [class "wip_color", value "wip", selected (task.status == Wip)] [text "En cours"]
                         , option [class "done_color", value "closed", selected (task.status == Closed)] [text "Terminée"]
                         ]
+                onCustomClick msg =
+                    stopPropagationOn "click" (JD.map (\n -> (n, True)) (JD.succeed msg)) 
                 (actions, buttons, content) = case task.mode of
                     ModeEdit ->
                         ( [class taskClasses]
                         ,
-                            [ button [onClick (ValidTask taskId), class "button_round"] [iconValid]
-                            , button [onClick (CancelTask taskId), class "button_round"] [iconClose]
+                            [ button [onCustomClick (ValidTask taskId), class "button_round"] [iconValid]
+                            , button [onCustomClick (CancelTask taskId), class "button_round"] [iconClose]
                             , statusSelector
                             ]
-                        , [
-                            --
-                            -- TODO : ajouter le textarea pour la description
-                            --
-                        ])
-                        --
+                        , [textarea [onInput (UpdateTaskDesc taskId), rows 7] [text task.tmpDesc]]
+                        )
                     ModeView ->
-                        --
-                        -- TODO : si ouverte, n'est pas déplaçable, sinon, la tâche est draggable
-                        --
-                        ( (class taskClasses)::[onClick (OpenTask taskId)]
-                        --
-                        , [ button [onClick (RemoveTask taskId), class "button_round"] [iconClose]
-                        , button [onClick (EditTask taskId), class "button_round"] [iconEdit]
-                        --
-                        -- TODO : sélecteur pour le statut
-                        --
-                        , statusSelector
-                        ]
-                        , [
+                        let
+                            draggable = case task.opened of
+                                True -> []
+                                False ->
+                                    --
+                                    -- TODO : rendre draggable, normalement c'est ici
+                                    --
+                                    []
+                                    --
                             --
-                            div [] [text "(description de la tâche)"]
-                            , div [] [text "(liste des sous tâches)"]
-                            --
-                            --
-                        ])
+                        in
+                        --
+                        ( (class taskClasses)::(onClick (OpenTask taskId))::(draggable)
+                        --
+                        ,
+                            [ button [onCustomClick (RemoveTask taskId), class "button_round"] [iconClose]
+                            , button [onCustomClick (EditTask taskId), class "button_round"] [iconEdit]
+                            , statusSelector
+                            ]
+                        , case task.opened of
+                            True ->
+                                let
+                                    subTasksList =
+                                        if (Array.length task.subTasks) > 0 then
+                                            [div [class "project_subtasks"] (viewTasks tasks task.subTasks)]
+                                        else [Html.nothing]
+                                    --
+                                    -- TODO : récupérer depuis les sous tâches combien sont terminées, en attente, etc
+                                    --
+                                    --
+                                    --
+                                in
+                                List.concat
+                                    [ [div [] [Markdown.toHtml [] task.desc]]
+                                    --
+                                    -- TODO : ajouter de quoi créer des tâches
+                                    -- TODO : s'il y a des sous tâches, alors il faut mettre une progress bar !
+                                    --
+                                    , ( if (Array.length task.subTasks) > 0 then
+                                        [div [] [text "Liste des sous-tâches :"]]
+                                    else
+                                        --
+                                        --
+                                        [text ""]
+                                    )
+                                    ,
+                                        --
+                                        --
+                                        -- TODO : rendre ce bouton d'ajout actif -> , onClick (AddTask taskId)
+                                        --
+                                        [ button [class "button_bottomsnap", style "float" "right"] [iconAdd]
+                                        --
+                                        , hr [style "clear" "both"] []
+                                        ]
+                                    , (subTasksList)
+                                    ]
+                            False -> [Html.nothing]
+                        )
                     ModeRemove ->
                         ([class taskClasses], [],
                             [ p [class "centered"] [text "Êtes-vous sûr de vouloir supprimer cette tâche ?"]

@@ -42,6 +42,7 @@ type alias ProjectTask =
     , parentId : String
     , status : ProjectTaskStatus
     , desc : String
+    , values : Array Int
     , subTasks : Array String
     }
 
@@ -58,6 +59,7 @@ generateTask init title parentId =
         parentId
         Planned
         ""
+        (Array.fromList [0,0,0])
         Array.empty
 
 -- JSON DECODE
@@ -82,11 +84,12 @@ decodeProjectTask =
                 "Wip" -> Wip
                 _ -> Closed
     in
-    JD.map5 (ProjectTask False ModeView "" "")
+    JD.map6 (ProjectTask False ModeView "" "")
         (field "title" string)
         (field "parentId" string)
         (field "status" (JD.map getProjectTaskStatus string))
         (field "desc" string)
+        (field "values" (array int))
         (field "subTasks" (array string))
 
 decodeProject : Decoder ProjectBase
@@ -126,6 +129,7 @@ encodeProjectTask task =
         , ("parentId", JE.string task.parentId)
         , ("status", JE.string (encodeProjectTaskStatus task.status))
         , ("desc", JE.string task.desc)
+        , ("values", JE.array JE.int task.values)
         , ("subTasks", JE.array JE.string task.subTasks)
         ]
 

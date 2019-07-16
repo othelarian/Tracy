@@ -2,7 +2,10 @@ h1 { text-align: center; }
 
 body { margin: 0; }
 
-textarea { resize: none; }
+textarea {
+    resize: none;
+    width: 90%;
+}
 
 /* BUTTONS CLASSES */
 
@@ -183,6 +186,11 @@ div.error {
     margin: auto 2px;
     padding: 1px 8px;
     color: white;
+}
+
+.project_subtasks {
+    padding-left: 5px;
+    border-left: solid 1px gray;
 }
 
 .project_tracker {

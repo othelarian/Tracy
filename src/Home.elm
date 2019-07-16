@@ -267,7 +267,7 @@ view model  =
                                 ]
                             , p [] [label [for "project_desc"] [text "Description (optionnel) :"]]
                             , textarea
-                                [id "project_desc", onInput OnDescChange, style "width" "90%", rows 7]
+                                [id "project_desc", onInput OnDescChange, rows 7]
                                 [text model.newProjectDesc]
                             , p [class "centered"]
                                 [ button [onClick CancelProject, class "button_round"] [iconClose]
