@@ -3,7 +3,7 @@ module Home exposing(Model, Msg(..), init, update, view)
 import Api exposing (..)
 import Graphics exposing (..)
 import JsonData
-import JsonData exposing (ProjectInfo)
+import JsonData exposing (ProjectIndicators, ProjectInfo)
 import Project exposing (createNewProject, init)
 
 import Array
@@ -178,7 +178,7 @@ update msg model =
                                 lastProject =
                                     case (List.head model.projects) of
                                         Just projectInfo -> projectInfo
-                                        Nothing -> ProjectInfo "" "" (Array.fromList [0,0,0])
+                                        Nothing -> ProjectInfo "" "" (ProjectIndicators 0 0 0)
                             in
                             (model, Task.perform GoToProject (Task.succeed (lastProject, model.apiCredentials)))
                 Err error -> handleError model model.phase error
@@ -192,7 +192,7 @@ update msg model =
             case result of
                 Ok fileId ->
                     let
-                        projectInfo = ProjectInfo fileId model.newProjectName (Array.fromList [0,0,0])
+                        projectInfo = ProjectInfo fileId model.newProjectName (ProjectIndicators 0 0 0)
                         newArrayProjects = projectInfo::model.projects
                         newModel = {model | projects = newArrayProjects}
                         newJson = JsonData.encodeHome newModel.projects
@@ -300,27 +300,24 @@ view model  =
 viewProject : ApiCredentials -> ProjectInfo -> Html Msg
 viewProject credentials projectInfo =
     let
-        total = Array.foldl (+) 0 projectInfo.values
-        getValueString id = String.fromInt (getValue id)
-        getValue id = case (Array.get id projectInfo.values) of
-            Just value -> value
-            Nothing -> 0
+        indicators = projectInfo.indicators
+        total = indicators.wait + indicators.wip + indicators.done
     in
     div [class "project_box"]
         [ a [onClick (GoToProject (projectInfo, credentials))] [text projectInfo.name]
         , button [onClick (RemoveProject False projectInfo), class "button_round"] [iconClose]
         , (
             if total > 0 then
-                if (getValue 2) == total then
+                if indicators.done == total then
                     div [class "centered project_end"] [text "Bravo ! Vous avez terminé ce projet !"]
                 else
                     div [class "project_progress"]
-                        [ span [class "round_box wait_color"] [text (getValueString 0)]
-                        , span [class "round_box wip_color"] [text (getValueString 1)]
-                        , span [class "round_box done_color"] [text (getValueString 2)]
+                        [ span [class "round_box wait_color"] [text (String.fromInt indicators.wait)]
+                        , span [class "round_box wip_color"] [text (String.fromInt indicators.wip)]
+                        , span [class "round_box done_color"] [text (String.fromInt indicators.done)]
                         , span [class "round_box total_color"] [text (String.fromInt total)]
                         ]
             else Html.nothing)
         , (
-            if (total > 0) && ((getValue 2) < total) then progressBar projectInfo.values else Html.nothing)
+            if (total > 0) && (indicators.done < total) then progressBar indicators else Html.nothing)
         ]

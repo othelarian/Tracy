@@ -19,13 +19,14 @@ import Json.Decode exposing (Decoder, array, decodeValue, errorToString, field, 
 import Json.Encode as JE
 
 
--- TODO : lors de la suppression d'une tâche avec des sous tâches, il faut AUSSI éliminer les sous tâches
--- WIP : indicateurs dans une tâche (quand elle a des sous tâches)
+-- WIP : indicateurs dans une tâche (quand elle a des sous tâches) -> factorisation des indicateurs ?
 -- WIP : lister les sous tâches d'une tâche
 -- WIP : ajouter une tâche dans une tâche
 -- TODO : lier une tâche à une tâche parente
 -- TODO : déplacer une tâche (ordonnencement et parentée)
 -- WIP : lorsqu'une tâche évolue, il faut qu'elle fasse évoluer la tâche parente aussi, si elle en a une
+-- TODO : lorsqu'on supprime une tâche, il faut que les indicateurs des tâches parentes soient mis à jour
+-- TODO : lorsqu'on ajoute une tâche, il faut que les indicateurs des tâches parentes soient mis à jour
 
 
 -- MAIN

@@ -45,16 +45,19 @@ iconValid =
         [width "14", height "14"]
         [polyline [class "iconsLine", points "1,5 5,13 13,1"] []]
 
-progressBar : Array Int -> Html msg
-progressBar values =
+type alias Indicators =
+    { wait : Int
+    , wip : Int
+    , done : Int
+    }
+
+progressBar : Indicators -> Html msg
+progressBar indicators =
     let
-        getValue id = case Array.get id values of
-            Just value -> value
-            Nothing -> 0
-        total = Array.foldl (+) 0 values
-        donePercent = (String.fromFloat (toFloat (getValue 2) / toFloat total * 100))++"%"
-        wipPercent = (String.fromFloat (toFloat (getValue 1) / toFloat total * 100))++"%"
-        waitPercent = (String.fromFloat (toFloat (getValue 0) / toFloat total * 100))++"%"
+        total = indicators.wait + indicators.wip + indicators.done
+        donePercent = (String.fromFloat (toFloat indicators.wait / toFloat total * 100))++"%"
+        wipPercent = (String.fromFloat (toFloat indicators.wip / toFloat total * 100))++"%"
+        waitPercent = (String.fromFloat (toFloat indicators.done / toFloat total * 100))++"%"
     in
     div [HA.class "progress_bar"]
         [ div [class "done_color", HA.style "width" donePercent] []

@@ -20,7 +20,7 @@ type alias ProjectBase =
 type alias ProjectInfo =
     { fileId : FileId
     , name : String
-    , values : Array Int
+    , indicators : ProjectIndicators
     }
 
 type ProjectTaskStatus
@@ -33,6 +33,12 @@ type ProjectTaskMode
     | ModeEdit
     | ModeRemove
 
+type alias ProjectIndicators =
+    { wait : Int
+    , wip : Int
+    , done : Int
+    }
+
 type alias ProjectTask =
     { opened : Bool
     , mode : ProjectTaskMode
@@ -42,7 +48,7 @@ type alias ProjectTask =
     , parentId : String
     , status : ProjectTaskStatus
     , desc : String
-    , values : Array Int
+    , indicators : ProjectIndicators
     , subTasks : Array String
     }
 
@@ -59,17 +65,24 @@ generateTask init title parentId =
         parentId
         Planned
         ""
-        (Array.fromList [0,0,0])
+        (ProjectIndicators 0 0 0)
         Array.empty
 
 -- JSON DECODE
+
+decodeIndicators : Decoder ProjectIndicators
+decodeIndicators =
+    JD.map3 ProjectIndicators
+        (field "wait" int)
+        (field "wip" int)
+        (field "done" int)
 
 decodeProjectInfo : Decoder ProjectInfo
 decodeProjectInfo =
     JD.map3 ProjectInfo
         (field "fileId" string)
         (field "name" string)
-        (field "values" (array int))
+        (field "indicators" decodeIndicators)
 
 decodeHome : JD.Decoder (List ProjectInfo)
 decodeHome =
@@ -89,7 +102,7 @@ decodeProjectTask =
         (field "parentId" string)
         (field "status" (JD.map getProjectTaskStatus string))
         (field "desc" string)
-        (field "values" (array int))
+        (field "indicators" decodeIndicators)
         (field "subTasks" (array string))
 
 decodeProject : Decoder ProjectBase
@@ -102,6 +115,14 @@ decodeProject =
 
 -- JSON ENCODE
 
+encodeIndicators : ProjectIndicators -> JE.Value
+encodeIndicators indicators =
+    JE.object
+        [ ("wait", JE.int indicators.wait)
+        , ("wip", JE.int indicators.wip)
+        , ("done", JE.int indicators.done)
+        ]
+
 encodeHome : List ProjectInfo -> JE.Value
 encodeHome projects =
     let
@@ -110,7 +131,7 @@ encodeHome projects =
             JE.object
                 [ ("fileId", JE.string projectInfo.fileId)
                 , ("name", JE.string projectInfo.name)
-                , ("values", JE.array JE.int projectInfo.values)
+                , ("indicators", encodeIndicators projectInfo.indicators)
                 ]
     in
     JE.object [ ("projects", JE.list encodeProjectInfo projects) ]
@@ -129,7 +150,7 @@ encodeProjectTask task =
         , ("parentId", JE.string task.parentId)
         , ("status", JE.string (encodeProjectTaskStatus task.status))
         , ("desc", JE.string task.desc)
-        , ("values", JE.array JE.int task.values)
+        , ("indicators", encodeIndicators task.indicators)
         , ("subTasks", JE.array JE.string task.subTasks)
         ]
 
