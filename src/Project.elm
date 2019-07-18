@@ -211,28 +211,33 @@ update msg model =
                 Ok _ -> ({model | phase = Viewing, tmpWaitSave = False} , Cmd.none)
                 Err error -> handleError model (Saving 3) error
         AddTask parentId ->
-            --
-            -- TODO : vérifier qu'on update bien toute les tâches parentes
-            --
-            --
-            --
-            --
             let
                 -- create new task
                 oldBase = model.base
                 newTask = JsonData.generateTask True ("Nouvelle tâche "++(String.fromInt oldBase.nextId)) parentId
-                newBase = {oldBase | nextId = (oldBase.nextId + 1), tasks = Dict.insert (String.fromInt oldBase.nextId) newTask oldBase.tasks}
+                -- update parent tasks
+                moreIndicators = ProjectIndicators 1 0 0
+                parentTaskIds = findParentIds model.base.tasks parentId []
+                --
+                updateTask foldParentId (accTasks, accIndicators) =
+                    --
+                    -- TODO : mise à jour des indicateurs suivant si des tâches parentes basculent leur statut
+                    -- TODO : mise à jour des statuts des tâches parentes
+                    --
+                    (accTasks, accIndicators)
+                    --
+                --
+                (updatedTasks, finalIndicators) = List.foldr updateTask (model.base.tasks, moreIndicators) parentTaskIds
                 --
                 --
+                --
+                newBase =
+                    {oldBase
+                        | nextId = (oldBase.nextId + 1)
+                        , tasks = Dict.insert (String.fromInt oldBase.nextId) newTask updatedTasks
+                        }
                 --
                 {-
-                --
-                oldValue = case Array.get 0 model.projectInfo.values of
-                    Just value -> value
-                    Nothing -> 0
-                newValues = Array.set 0 (oldValue+1) model.projectInfo.values
-                --
-                --
                 oldProjectInfo = model.projectInfo
                 newProjectInfo = {oldProjectInfo | values = newValues}
                 newModel = {model | projectInfo = newProjectInfo, tmpWaitSave = True}
@@ -331,60 +336,58 @@ update msg model =
                         purgedTasks = List.foldl doPurge model.base.tasks allSubTaskIds
                         -- update parent tasks with new calculated values
                         parentTaskIds = findParentIds purgedTasks task.parentId []
-                        --
-                        updateTask parentId (tmpTasks, tmpIndicators) =
-                            --
-                            -- TODO : mise à jour du nombre de tâches
-                            --
-                            --
-                            -- TODO : mise à jour du statut si besoin
-                            --
-                            let
-                                --
-                                --
-                                changedIndicators = tmpIndicators
-                                --
-                                --
-                                doUpdate maybeTmpTask =
-                                    case maybeTmpTask of
-                                        Just tmpTask ->
-                                            --
-                                            --
-                                            --Just {tmpTask | indicators = ???, status = ???}
-                                            --
-                                            Just tmpTask
-                                            --
-                                        Nothing -> Nothing
-                            in
-                            --
-                            --
-                            (Dict.update parentId doUpdate tmpTasks, changedIndicators)
-                            --
-                        --
+                        updateTask parentId (tmpTasks, lessIndicators) =
+                            case Dict.get parentId tmpTasks of
+                                Just parentTask ->
+                                    let
+                                        oldParentIndicators = parentTask.indicators
+                                        newParentIndicators =
+                                            {oldParentIndicators
+                                                | wait = oldParentIndicators.wait + lessIndicators.wait
+                                                , wip = oldParentIndicators.wip + lessIndicators.wip
+                                                , done = oldParentIndicators.done + lessIndicators.done
+                                                }
+                                        (newParentStatus, updateLessIndicators) =
+                                            case parentTask.status of
+                                                Planned -> (Planned, lessIndicators)
+                                                Wip ->
+                                                    if newParentIndicators.wait == 0 && newParentIndicators.wip == 0 then
+                                                        ( Closed
+                                                        , {lessIndicators
+                                                            | wip = lessIndicators.wip - 1
+                                                            , done = lessIndicators.done + 1
+                                                            }
+                                                        )
+                                                    else if newParentIndicators.wip == 0 && newParentIndicators.done == 0 then
+                                                        ( Planned
+                                                        , {lessIndicators
+                                                            | wait = lessIndicators.wait + 1
+                                                            , wip = lessIndicators.wip - 1
+                                                            }
+                                                        )
+                                                    else (Wip, lessIndicators)
+                                                Closed -> (Closed, lessIndicators)
+                                        doUpdate maybeParentTask =
+                                            case maybeParentTask of
+                                                Just tmpParentTask ->
+                                                    Just {tmpParentTask | indicators = newParentIndicators, status = newParentStatus}
+                                                Nothing -> Nothing
+                                    in
+                                    (Dict.update parentId doUpdate tmpTasks, updateLessIndicators)
+                                Nothing -> (tmpTasks, lessIndicators)
                         removeIndicators =
-                            let tmpIndicators = ProjectIndicators -task.indicators.wait -task.indicators.wip -task.indicators.done in
+                            let
+                                tmpIndicators =
+                                    ProjectIndicators
+                                        -task.indicators.wait
+                                        -task.indicators.wip
+                                        -task.indicators.done
+                            in
                             case task.status of
                                 Planned -> {tmpIndicators | wait = tmpIndicators.wait - 1}
                                 Wip -> {tmpIndicators | wait = tmpIndicators.wip - 1}
                                 Closed -> {tmpIndicators | wait = tmpIndicators.done - 1}
-                        (updatedTasks, newIndicators) = List.foldl updateTask (purgedTasks, removeIndicators) parentTaskIds
-                        --
-                        {-
-                        toRemoveValues = Array.set valueId (oldTaskValue+1) task.values
-                        getParentTaskId parentKey = case Dict.get parentKey purgedTasks of
-                            Just tmpTask -> Array.append (Array.initialize 1 (always parentKey)) (getParentTaskId tmpTask.parentId)
-                            Nothing -> Array.empty
-                        updatedTasksId = getParentTaskId task.parentId
-                        updateTask updateKey tmpDict =
-                            let
-                                doUpdate maybe = case maybe of
-                                    Just tmpTask -> Just {tmpTask | values = (updatedValues tmpTask.values)}
-                                    Nothing -> Nothing
-                            in
-                            Dict.update updateKey doUpdate tmpDict
-                        updatedTasks = Array.foldl updateTask purgedTasks updatedTasksId
-                        -}
-                        --
+                        (updatedTasks, newIndicators) = List.foldr updateTask (purgedTasks, removeIndicators) parentTaskIds
                         -- update immediate parent task
                         updateImmediateParent maybeParentTask =
                             let newParentSubTasks tmpTask = List.filter (\n -> n /= task.parentId) tmpTask.subTasks in
@@ -437,7 +440,10 @@ view model =
                         in
                         if total > 0 then
                             if total == indicators.done then
-                                [span [class "project_end"] [text ("Vous avez terminé ce projet ! (soit "++(String.fromInt total)++" tâches)")]]
+                                [ span
+                                    [class "project_end"]
+                                    [text ("Vous avez terminé ce projet ! (soit "++(String.fromInt total)++" tâches)")]
+                                ]
                             else
                                 [ progressBar indicators
                                 , div [class "project_progress"]
@@ -449,7 +455,9 @@ view model =
                                 ]
                         else [Html.nothing])
                     [ button [class "button_bottomsnap", onClick (AddTask "-1")] [iconAdd]
-                    , if model.tmpWaitSave then button [class "button_bottomsnap", onClick SaveEdit] [iconValid] else Html.nothing
+                    ,
+                        if model.tmpWaitSave then button [class "button_bottomsnap", onClick SaveEdit] [iconValid]
+                        else Html.nothing
                     , hr [style "clear" "both"] []
                     ])
             _ -> Html.nothing
