@@ -2,10 +2,9 @@ module JsonData exposing (..)
 
 import Api exposing (FileId, decodeInfoFile)
 
-import Array exposing (Array)
 import Dict exposing (Dict)
 import Json.Decode as JD
-import Json.Decode exposing (Decoder, array, dict, field, int, list, string)
+import Json.Decode exposing (Decoder, dict, field, int, list, string)
 import Json.Encode as JE
 
 -- TYPES
@@ -14,7 +13,7 @@ type alias ProjectBase =
     { desc : String
     , nextId : Int
     , tasks : Dict String ProjectTask
-    , topLevel : Array String
+    , topLevel : List String
     }
 
 type alias ProjectInfo =
@@ -49,7 +48,7 @@ type alias ProjectTask =
     , status : ProjectTaskStatus
     , desc : String
     , indicators : ProjectIndicators
-    , subTasks : Array String
+    , subTasks : List String
     }
 
 -- GENERATION
@@ -66,7 +65,7 @@ generateTask init title parentId =
         Planned
         ""
         (ProjectIndicators 0 0 0)
-        Array.empty
+        []
 
 -- JSON DECODE
 
@@ -103,7 +102,7 @@ decodeProjectTask =
         (field "status" (JD.map getProjectTaskStatus string))
         (field "desc" string)
         (field "indicators" decodeIndicators)
-        (field "subTasks" (array string))
+        (field "subTasks" (list string))
 
 decodeProject : Decoder ProjectBase
 decodeProject =
@@ -111,7 +110,7 @@ decodeProject =
         (field "desc" JD.string)
         (field "nextId" int)
         (field "tasks" (dict decodeProjectTask))
-        (field "topLevel" (array string))
+        (field "topLevel" (list string))
 
 -- JSON ENCODE
 
@@ -151,7 +150,7 @@ encodeProjectTask task =
         , ("status", JE.string (encodeProjectTaskStatus task.status))
         , ("desc", JE.string task.desc)
         , ("indicators", encodeIndicators task.indicators)
-        , ("subTasks", JE.array JE.string task.subTasks)
+        , ("subTasks", JE.list JE.string task.subTasks)
         ]
 
 encodeProject : ProjectBase -> JE.Value
@@ -160,5 +159,5 @@ encodeProject base =
         [ ("desc", JE.string base.desc)
         , ("nextId", JE.int base.nextId)
         , ("tasks", JE.dict (\n -> n) encodeProjectTask base.tasks)
-        , ("topLevel", JE.array JE.string base.topLevel)
+        , ("topLevel", JE.list JE.string base.topLevel)
         ]

@@ -57,7 +57,7 @@ init apiCredentials projectInfo homeId testShow =
         ""
         False
         (Loading projectInfo)
-        (ProjectBase "" 0 Dict.empty Array.empty)
+        (ProjectBase "" 0 Dict.empty [])
         ""
         testShow
 
@@ -65,13 +65,25 @@ init apiCredentials projectInfo homeId testShow =
 
 createNewProject : String -> ProjectBase
 createNewProject desc =
-    ProjectBase desc 0 Dict.empty Array.empty
+    ProjectBase desc 0 Dict.empty []
 
 findParentIds : Dict String ProjectTask -> String -> List String -> List String
 findParentIds tasks parentId acc =
     case Dict.get parentId tasks of
         Just foundTask -> findParentIds tasks foundTask.parentId (parentId::acc)
         Nothing -> acc
+
+findSubTaskIds : Dict String ProjectTask -> String -> List String -> List String -> List String
+findSubTaskIds tasks subTaskId future acc =
+    let
+        (newFuture, newAcc) =
+            case Dict.get subTaskId tasks of
+                Just subTask -> (List.append future subTask.subTasks, subTaskId::acc)
+                Nothing -> (future, acc)
+    in
+    case newFuture of
+        nextId::tail -> findSubTaskIds tasks nextId tail newAcc
+        _ -> newAcc
 
 handleError : Model -> ProjectPhase -> Http.Error -> (Model, Cmd Msg)
 handleError model phase error =
@@ -311,41 +323,51 @@ update msg model =
             case Dict.get taskId model.base.tasks of
                 Just task ->
                     let
-                        --
-                        --
-                        -- TODO : pour les tâches parentes, il faut vérifier si un changement de statut est nécessaire, ou pas
-                        --
-                        --
                         -- get subTasks and remove them
-                        findSubTaskIds subTaskId future acc =
-                            let
-                                (newFuture, newAcc) = case Dict.get subTaskId model.base.tasks of
-                                    Just subTask -> (List.append future subTask.subTasks, subTaskId::acc)
-                                    Nothing -> (future, acc)
-                            in
-                            case newFuture of
-                                nextId::tail -> findSubTaskIds nextId tail newAcc
-                                _ -> newAcc
                         allSubTaskIds = case task.subTasks of
-                            head::tail -> findSubTaskIds head tail []
+                            head::tail -> findSubTaskIds model.base.tasks head tail []
                             _ -> []
                         doPurge purgedKey tmpDict = Dict.remove purgedKey tmpDict
-                        purgedTasks = Array.foldl doPurge model.base.tasks allSubTaskIds
-                        -- small helpers
-                        --
-                        --
-                        --educeValue oldValues idx = case Array.get idx toRemoveValues of
-                        --    Just remValue -> case Array.get idx oldValues of
-                        --        Just oldTmpValue -> oldTmpValue - remValue
-                        --        Nothing -> 0
-                        --    Nothing -> 0
-                        --updatedValues oldValues = Array.initialize 2 (identity) |> Array.map (reduceValue oldValues)
-                        --
-                        --
-                        --
+                        purgedTasks = List.foldl doPurge model.base.tasks allSubTaskIds
                         -- update parent tasks with new calculated values
-                        parentTaskIds = findParentIds purgedTasks
+                        parentTaskIds = findParentIds purgedTasks task.parentId []
                         --
+                        updateTask parentId (tmpTasks, tmpIndicators) =
+                            --
+                            -- TODO : mise à jour du nombre de tâches
+                            --
+                            --
+                            -- TODO : mise à jour du statut si besoin
+                            --
+                            let
+                                --
+                                --
+                                changedIndicators = tmpIndicators
+                                --
+                                --
+                                doUpdate maybeTmpTask =
+                                    case maybeTmpTask of
+                                        Just tmpTask ->
+                                            --
+                                            --
+                                            --Just {tmpTask | indicators = ???, status = ???}
+                                            --
+                                            Just tmpTask
+                                            --
+                                        Nothing -> Nothing
+                            in
+                            --
+                            --
+                            (Dict.update parentId doUpdate tmpTasks, changedIndicators)
+                            --
+                        --
+                        removeIndicators =
+                            let tmpIndicators = ProjectIndicators -task.indicators.wait -task.indicators.wip -task.indicators.done in
+                            case task.status of
+                                Planned -> {tmpIndicators | wait = tmpIndicators.wait - 1}
+                                Wip -> {tmpIndicators | wait = tmpIndicators.wip - 1}
+                                Closed -> {tmpIndicators | wait = tmpIndicators.done - 1}
+                        (updatedTasks, newIndicators) = List.foldl updateTask (purgedTasks, removeIndicators) parentTaskIds
                         --
                         {-
                         toRemoveValues = Array.set valueId (oldTaskValue+1) task.values
@@ -363,13 +385,18 @@ update msg model =
                         updatedTasks = Array.foldl updateTask purgedTasks updatedTasksId
                         -}
                         --
-                        --
+                        -- update immediate parent task
+                        updateImmediateParent maybeParentTask =
+                            let newParentSubTasks tmpTask = List.filter (\n -> n /= task.parentId) tmpTask.subTasks in
+                            case maybeParentTask of
+                                Just parentTask -> Just {parentTask | subTasks = newParentSubTasks parentTask}
+                                Nothing -> Nothing
+                        finalTasks = Dict.update task.parentId updateImmediateParent updatedTasks
                         -- update project values
-                        newValues = updatedValues model.projectInfo.values
                         oldProjectInfo = model.projectInfo
-                        newProjectInfo = {oldProjectInfo | values = newValues}
+                        newProjectInfo = {oldProjectInfo | indicators = newIndicators}
                         -- final steps
-                        newTasks = Dict.remove taskId updatedTasks
+                        newTasks = Dict.remove taskId finalTasks
                         oldBase = model.base
                     in
                     ({model | projectInfo = newProjectInfo, base = {oldBase | tasks = newTasks}}, Cmd.none)
@@ -470,9 +497,9 @@ view model =
         )
         ]
 
-viewTasks : Dict String ProjectTask -> Array String -> List (Html Msg)
+viewTasks : Dict String ProjectTask -> List String -> List (Html Msg)
 viewTasks tasks taskIds =
-    Array.map (viewTask tasks) taskIds |> Array.toList
+    List.map (viewTask tasks) taskIds
 
 viewTask : Dict String ProjectTask -> String -> Html Msg
 viewTask tasks taskId =
@@ -526,9 +553,8 @@ viewTask tasks taskId =
                             True ->
                                 let
                                     subTasksList =
-                                        if (Array.length task.subTasks) > 0 then
-                                            [div [class "project_subtasks"] (viewTasks tasks task.subTasks)]
-                                        else [Html.nothing]
+                                        if List.isEmpty task.subTasks then [Html.nothing]
+                                        else [div [class "project_subtasks"] (viewTasks tasks task.subTasks)]
                                     --
                                     -- TODO : récupérer depuis les sous tâches combien sont terminées, en attente, etc
                                     --
@@ -541,12 +567,12 @@ viewTask tasks taskId =
                                     -- TODO : ajouter de quoi créer des tâches
                                     -- TODO : s'il y a des sous tâches, alors il faut mettre une progress bar !
                                     --
-                                    , ( if (Array.length task.subTasks) > 0 then
-                                        [div [] [text "Liste des sous-tâches :"]]
-                                    else
+                                    , (
+                                        if List.isEmpty task.subTasks then
                                         --
                                         --
                                         [text ""]
+                                        else [div [] [text "Liste des sous-tâches :"]]
                                     )
                                     ,
                                         --
