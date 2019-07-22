@@ -102,6 +102,7 @@ handleUpdateHome model projects =
     ( {model | phase = Saving 2}
     , apiUpdateFile (FSUpdate model.homeId homeValue) ValidStep2Edit model.apiCredentials)
 
+handleUpdateIndicators : ProjectIndicators -> ProjectIndicators -> ProjectIndicators
 handleUpdateIndicators prevIndicators addedIndicators =
     {prevIndicators
         | wait = prevIndicators.wait + addedIndicators.wait
@@ -298,6 +299,19 @@ update msg model =
                                 Planned -> ProjectIndicators sumIndicators 0 0
                                 Wip -> ProjectIndicators 0 sumIndicators 0
                                 Closed -> ProjectIndicators 0 0 sumIndicators
+                        calculateSubTasksIndicators subTaskIds calcTasks =
+                            let
+                                getSubTaskIndicators subTaskId accIndicators =
+                                    case Dict.get subTaskId calcTasks of
+                                        Just subTask ->
+                                            let tmpIndicators = handleUpdateIndicators accIndicators subTask.indicators in
+                                            case subTask.status of
+                                                Planned -> {tmpIndicators | wait = tmpIndicators.wait + 1}
+                                                Wip -> {tmpIndicators | wip = tmpIndicators.wip + 1}
+                                                Closed -> {tmpIndicators | done = tmpIndicators.done + 1}
+                                        Nothing -> accIndicators
+                            in
+                            List.foldl getSubTaskIndicators (ProjectIndicators 0 0 0) subTaskIds
                         -- update sub tasks
                         allSubTaskIds = case task.subTasks of
                             head::tail -> findSubTaskIds model.base.tasks head tail []
@@ -312,94 +326,41 @@ update msg model =
                             in
                             Dict.update subTaskId updateSubStatus oldAccTasks
                         subUpdatedTasks = List.foldl doSubUpdate model.base.tasks allSubTaskIds
+                        -- update current task
+                        doCurrentUpdate maybeCurrentTask =
+                            case maybeCurrentTask of
+                                Just currentTask ->
+                                    Just {currentTask | indicators = newIndicators currentTask.indicators, status = newStatus}
+                                Nothing -> Nothing
+                        currentUpdatedTasks = Dict.update taskId doCurrentUpdate subUpdatedTasks
                         -- update parents tasks
-                        parentIds = findParentIds subUpdatedTasks task.parentId []
-                        moveParentIndicators =
-                            case newStatus of
-                                Planned -> ProjectIndicators
-                                    (task.indicators.wip + task.indicators.done)
-                                    -task.indicators.wip
-                                    -task.indicators.done
-                                Wip -> ProjectIndicators
-                                    -task.indicators.wait
-                                    (task.indicators.wait + task.indicators.done)
-                                    -task.indicators.done
-                                Closed -> ProjectIndicators
-                                    -task.indicators.wait
-                                    -task.indicators.wip
-                                    (task.indicators.wait + task.indicators.wip)
-                        updateParentTask parentId (oldParentTasks, accParentIndicators) =
+                        parentIds = findParentIds currentUpdatedTasks task.parentId []
+                        doParentUpdate parentId accTasks =
                             let
-                                newAccParentIndicators =
-                                    case Dict.get parentId oldParentTasks of
-                                        Just parentTask ->
-                                            let
-                                                newParentIndicators = handleUpdateIndicators parentTask.indicators accParentIndicators
-                                                --
-                                                --
-                                            in
-                                            --
-                                            -- TODO : faire la vérification au niveau du statut à cause du changement des indicateurs
-                                            --
-                                            case (newStatus, parentTask.status) of
-                                                (Planned, Planned) -> accParentIndicators
-                                                (Planned, _) ->
-                                                    if newParentIndicators.wip == 0 && newParentIndicators.done then
-                                                        --
-                                                        --
-                                                    else ???
-                                                    --
-                                                    --
-                                                    --
-                                            --
-                                            --
-                                        Nothing -> accParentIndicators
-                                doParentUpdate maybeParentTask =
+                                updateParentIndicators maybeParentTask =
                                     case maybeParentTask of
                                         Just parentTask ->
                                             let
-                                                newParentIndicators = handleUpdateIndicators parentTask.indicators accParentIndicators
+                                                newParentIndicators = calculateSubTasksIndicators parentTask.subTasks accTasks
                                                 newParentStatus =
-                                                    case (newStatus, parentTask.status) of
-                                                        (Planned, Planned) -> Planned
-                                                        (Planned, _) ->
-                                                            if newParentIndicators.wip == 0 && newParentIndicators.done == 0 then Planned
-                                                            else Wip
-                                                        (Wip, _) -> Wip
-                                                        (Closed, Closed) -> Closed
-                                                        (Closed, _) ->
-                                                            if newParentIndicators.wait == 0 && newParentIndicators.wip == 0 then Closed
-                                                            else Wip
+                                                    if newParentIndicators.wip == 0 then
+                                                        if newParentIndicators.done == 0 then Planned
+                                                        else if newParentIndicators.wait == 0 then Closed
+                                                        else Wip
+                                                    else Wip
                                             in
                                             Just {parentTask | indicators = newParentIndicators, status = newParentStatus}
                                         Nothing -> Nothing
                             in
-                            (Dict.update parentId doParentUpdate oldParentTasks, newAccParentIndicators)
-                        (parentUpdatedTasks,parentFinalIndicators) =
-                            List.foldr updateParentTask (subUpdatedTasks, moveParentIndicators) parentIds
+                            Dict.update parentId updateParentIndicators accTasks
+                        parentUpdatedTasks = List.foldr doParentUpdate currentUpdatedTasks parentIds
                         -- last part
-                        newTaskIndicators = newIndicators task.indicators
-                        --
-                        finalUpdateTask maybeFinalTask =
-                            case maybeFinalTask of
-                                Just finalTask ->
-                                    --
-                                    --
-                                    --Just {finalTask | indicators = ???}
-                                    Just finalTask
-                                    --
-                                Nothing -> Nothing
-                        --
-                        finalTasks = Dict.update taskId finalUpdateTask parentUpdatedTasks
-                        --
-                        -- TODO : réutiliser la sortie du foldr sur les parents pour alimenter les indicateurs globaux
-                        --
-                        --finalProjectInfo = ???
-                        finalProjectInfo = model.projectInfo
-                        --
                         oldBase = model.base
+                        oldProjectInfo = model.projectInfo
+                        finalProjectInfo =
+                            {oldProjectInfo | indicators = calculateSubTasksIndicators oldBase.topLevel parentUpdatedTasks }
                     in
-                    ({model | projectInfo = finalProjectInfo, base = {oldBase | tasks = finalTasks}, tmpWaitSave = True}, Cmd.none)
+                    ({model | projectInfo = finalProjectInfo, base = {oldBase | tasks = parentUpdatedTasks}, tmpWaitSave = True}, Cmd.none)
                 Nothing -> (model, Cmd.none)
         MoveTask ->
             --
@@ -598,14 +559,19 @@ viewTask tasks taskId =
                     Wip -> "wip_color"
                     Closed -> "done_color"
                 taskClasses = "task_bar round_box "++statusColor
+                --
+                -- TODO : le select active l'ouverture de la tâche, il faut l'empêcher
+                --
+                --onCustomInput value msg =
+                --    stopPropagationOn "click" (JD.map (\n -> (n, True)) (JD.succeed msg))
+                onCustomClick msg =
+                    stopPropagationOn "click" (JD.map (\n -> (n, True)) (JD.succeed msg)) 
                 statusSelector =
                     select [class statusColor, onInput (UpdateTaskStatus taskId)]
                         [ option [class "wait_color", value "planned", selected (task.status == Planned)] [text "Attente"]
                         , option [class "wip_color", value "wip", selected (task.status == Wip)] [text "En cours"]
                         , option [class "done_color", value "closed", selected (task.status == Closed)] [text "Terminée"]
                         ]
-                onCustomClick msg =
-                    stopPropagationOn "click" (JD.map (\n -> (n, True)) (JD.succeed msg)) 
                 (actions, buttons, content) = case task.mode of
                     ModeEdit ->
                         ( [class taskClasses]
