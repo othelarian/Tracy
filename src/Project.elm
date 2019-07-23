@@ -63,6 +63,27 @@ init apiCredentials projectInfo homeId testShow =
 
 -- HANDLERS
 
+calculateParentUpdate : String -> Dict String ProjectTask -> Dict String ProjectTask
+calculateParentUpdate parentId accTasks =
+    let
+        updateParentIndicators maybeParentTask =
+            case maybeParentTask of
+                Just parentTask ->
+                    let
+                        newParentIndicators = calculateSubTasksIndicators parentTask.subTasks accTasks
+                        newParentStatus =
+                            if newParentIndicators.wip == 0 then
+                                if newParentIndicators.done == 0 then Planned
+                                else if newParentIndicators.wait == 0 then Closed
+                                else Wip
+                            else Wip
+                    in
+                    Just {parentTask | indicators = newParentIndicators, status = newParentStatus}
+                Nothing -> Nothing
+    in
+    Dict.update parentId updateParentIndicators accTasks
+
+calculateSubTasksIndicators : List String -> Dict String ProjectTask -> ProjectIndicators
 calculateSubTasksIndicators subTaskIds calcTasks =
     let
         getSubTaskIndicators subTaskId accIndicators =
@@ -239,63 +260,40 @@ update msg model =
         AddTask parentId ->
             let
                 oldBase = model.base
+                oldProjectInfo = model.projectInfo
+                oldTopIndicators = oldProjectInfo.indicators
                 newTask = JsonData.generateTask True ("Nouvelle tâche "++(String.fromInt oldBase.nextId)) parentId
-                moreIndicators = ProjectIndicators 1 0 0
-                newBase tmpTasks =
-                    {oldBase
-                        | nextId = (oldBase.nextId + 1)
-                        , tasks = Dict.insert (String.fromInt oldBase.nextId) newTask tmpTasks
-                        }
-                newProjectInfo modTopIndicators =
-                    let oldProjectInfo = model.projectInfo in
-                    {oldProjectInfo | indicators = handleUpdateIndicators oldProjectInfo.indicators modTopIndicators}
-                newModel modTopIndicators = {model | projectInfo = newProjectInfo modTopIndicators, tmpWaitSave = True}
+                currentAddedTasks = Dict.insert (String.fromInt oldBase.nextId) newTask oldBase.tasks
+                currentModel = {model | tmpWaitSave = True}
+                currentBase = {oldBase | nextId = (oldBase.nextId + 1)}
             in
             case parentId of
                 "-1" ->
                     let
-                        newOrder = List.append oldBase.topLevel [String.fromInt oldBase.nextId]
-                        finalBase = newBase oldBase.tasks
-                        finalModel = newModel moreIndicators
+                        newTopLevel = List.append oldBase.topLevel [String.fromInt oldBase.nextId]
+                        newProjectInfo = {oldProjectInfo | indicators = {oldTopIndicators | wait = oldTopIndicators.wait + 1}}
+                        newBase = {currentBase | topLevel = newTopLevel, tasks = currentAddedTasks}
                     in
-                    ({finalModel | base = {finalBase | topLevel = newOrder}}, Cmd.none)
+                    ({currentModel | base = newBase, projectInfo = newProjectInfo}, Cmd.none)
                 _ ->
                     let
-                        parentTaskIds = findParentIds model.base.tasks parentId []
-                        updateTask foldParentId (accTasks, accIndicators) =
-                            case Dict.get foldParentId accTasks of
-                                Just parentTask ->
-                                    let
-                                        newParentSubTasks = List.append parentTask.subTasks [String.fromInt oldBase.nextId]
-                                        oldParentIndicators = parentTask.indicators
-                                        newParentIndicators =
-                                            {oldParentIndicators
-                                                | wip = oldParentIndicators.wip + accIndicators.wip
-                                                , done = oldParentIndicators.done + accIndicators.done
-                                                }
-                                        (newStatus, newAccIndicators) =
-                                            case parentTask.status of
-                                                Closed ->
-                                                    (Wip, {accIndicators | wip = accIndicators.wip + 1, done = accIndicators.done - 1})
-                                                _ -> (parentTask.status, accIndicators)
-                                        doUpdate maybeTask =
-                                            case maybeTask of
-                                                Just oldTask ->
-                                                    Just {oldTask
-                                                        | subTasks = newParentSubTasks
-                                                        , status = newStatus
-                                                        , indicators = newParentIndicators
-                                                        }
-                                                Nothing -> Nothing
-                                        newAccTasks = Dict.update foldParentId doUpdate accTasks
-                                    in
-                                    (newAccTasks, newAccIndicators)
-                                Nothing -> (accTasks, accIndicators)
-                        (updatedTasks, finalIndicators) = List.foldr updateTask (model.base.tasks, moreIndicators) parentTaskIds
-                        finalBase = newBase updatedTasks
-                        finalModel = newModel finalIndicators
+                        parentTaskIds = findParentIds currentAddedTasks parentId []
+                        firstParentAddedTasks =
+                            let
+                                firstParentUpdate maybeParentTask =
+                                    case maybeParentTask of
+                                        Just parentTask ->
+                                            let newSubList = List.append parentTask.subTasks [(String.fromInt oldBase.nextId)] in
+                                            Just {parentTask | subTasks = newSubList}
+                                        Nothing -> Nothing
+                            in
+                            Dict.update parentId firstParentUpdate currentAddedTasks
+                        parentAddedTasks = List.foldr calculateParentUpdate firstParentAddedTasks parentTaskIds
+                        newTopIndicators = calculateSubTasksIndicators model.base.topLevel parentAddedTasks
+                        newProjectInfo = {oldProjectInfo | indicators = newTopIndicators}
+                        newBase = {currentBase | tasks = parentAddedTasks}
                     in
-                    ({finalModel | base = {finalBase | tasks = updatedTasks}}, Cmd.none)
+                    ({currentModel | base = newBase, projectInfo = newProjectInfo}, Cmd.none)
         OpenTask taskId -> handleUpdateTask taskId model msg
         CancelTask taskId -> handleUpdateTask taskId model msg
         ValidTask taskId -> handleUpdateTask taskId model msg
@@ -340,25 +338,7 @@ update msg model =
                         currentUpdatedTasks = Dict.update taskId doCurrentUpdate subUpdatedTasks
                         -- update parents tasks
                         parentIds = findParentIds currentUpdatedTasks task.parentId []
-                        doParentUpdate parentId accTasks =
-                            let
-                                updateParentIndicators maybeParentTask =
-                                    case maybeParentTask of
-                                        Just parentTask ->
-                                            let
-                                                newParentIndicators = calculateSubTasksIndicators parentTask.subTasks accTasks
-                                                newParentStatus =
-                                                    if newParentIndicators.wip == 0 then
-                                                        if newParentIndicators.done == 0 then Planned
-                                                        else if newParentIndicators.wait == 0 then Closed
-                                                        else Wip
-                                                    else Wip
-                                            in
-                                            Just {parentTask | indicators = newParentIndicators, status = newParentStatus}
-                                        Nothing -> Nothing
-                            in
-                            Dict.update parentId updateParentIndicators accTasks
-                        parentUpdatedTasks = List.foldr doParentUpdate currentUpdatedTasks parentIds
+                        parentUpdatedTasks = List.foldr calculateParentUpdate currentUpdatedTasks parentIds
                         -- last part
                         oldBase = model.base
                         oldProjectInfo = model.projectInfo
@@ -370,9 +350,7 @@ update msg model =
         MoveTask ->
             --
             --
-            -- TODO : tout reste à faire dans cette partie
-            --
-            --
+            let _ = Debug.log "TODO" "tout reste à faire dans cette partie" in
             --
             (model, Cmd.none)
             --
@@ -554,7 +532,7 @@ viewTask tasks taskId =
                                 True -> []
                                 False ->
                                     --
-                                    -- TODO : rendre draggable, normalement c'est ici
+                                    let _ = Debug.log "TODO" "rendre draggable, normalement c'est ici" in
                                     --
                                     []
                                     --
@@ -573,33 +551,20 @@ viewTask tasks taskId =
                                 let
                                     subTasksList =
                                         if List.isEmpty task.subTasks then [Html.nothing]
-                                        else [div [class "project_subtasks"] (viewTasks tasks task.subTasks)]
-                                    --
-                                    -- TODO : récupérer depuis les sous tâches combien sont terminées, en attente, etc
-                                    --
-                                    --
-                                    --
+                                        else [div [class "task_subtasks"] (viewTasks tasks task.subTasks)]
                                 in
                                 List.concat
                                     [ [div [class "task_desc"] [Markdown.toHtml [] task.desc]]
-                                    --
-                                    -- TODO : ajouter de quoi créer des tâches
-                                    -- TODO : s'il y a des sous tâches, alors il faut mettre une progress bar !
-                                    --
                                     , (
-                                        if List.isEmpty task.subTasks then
-                                        --
-                                        --
-                                        [text ""]
+                                        if List.isEmpty task.subTasks then [Html.nothing]
                                         else [div [] [text "Liste des sous-tâches :"]]
                                     )
-                                    ,
-                                        --
-                                        --
-                                        -- TODO : rendre ce bouton d'ajout actif -> , onClick (AddTask taskId)
-                                        --
-                                        [ button [class "button_bottomsnap", style "float" "right"] [iconAdd]
-                                        --
+                                    , [ div [class "indicators_tracker"]
+                                        (List.append
+                                            (if List.isEmpty task.subTasks then [Html.nothing]
+                                            else viewIndicatorsTracker task.indicators "les sous tâches")
+                                            [button [class "button_bottomsnap", onClick (AddTask taskId)] [iconAdd]]
+                                            )
                                         , hr [style "clear" "both"] []
                                         ]
                                     , (subTasksList)

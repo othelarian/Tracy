@@ -196,11 +196,6 @@ div.error {
     font-weight: bold;
 }
 
-.project_subtasks {
-    padding-left: 5px;
-    border-left: solid 1px gray;
-}
-
 .project_tracker {
     position: fixed;
     top: 0;
@@ -244,6 +239,13 @@ div.error {
 .task_select {
     height: 22px;
     float: right;
+}
+
+.task_subtasks {
+    padding-left: 5px;
+    padding-right: 1px;
+    border-left: solid 1px gray;
+    border-right: solid 1px gray;
 }
 
 /* STATUS COLORS */

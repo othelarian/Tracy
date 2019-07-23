@@ -20,12 +20,7 @@ import Json.Encode as JE
 
 
 -- WIP : indicateurs dans une tâche (quand elle a des sous tâches) -> factorisation des indicateurs ?
--- WIP : lister les sous tâches d'une tâche
--- VERIFY : ajouter une tâche dans une tâche
 -- TODO : intégrer le déplacement par drag'n'drop des tâches
--- VERIFY : lorsqu'une tâche évolue, il faut qu'elle fasse évoluer la tâche parente aussi, si elle en a une
--- VERIFY : lorsqu'on supprime une tâche, il faut que les indicateurs des tâches parentes soient mis à jour
--- VERIFY : lorsqu'on ajoute une tâche, il faut que les indicateurs des tâches parentes soient mis à jour
 -- TODO : prévisualisation du markdown ?
 
 
