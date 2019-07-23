@@ -55,9 +55,9 @@ progressBar : Indicators -> Html msg
 progressBar indicators =
     let
         total = indicators.wait + indicators.wip + indicators.done
-        donePercent = (String.fromFloat (toFloat indicators.wait / toFloat total * 100))++"%"
+        donePercent = (String.fromFloat (toFloat indicators.done / toFloat total * 100))++"%"
         wipPercent = (String.fromFloat (toFloat indicators.wip / toFloat total * 100))++"%"
-        waitPercent = (String.fromFloat (toFloat indicators.done / toFloat total * 100))++"%"
+        waitPercent = (String.fromFloat (toFloat indicators.wait / toFloat total * 100))++"%"
     in
     div [HA.class "progress_bar"]
         [ div [class "done_color", HA.style "width" donePercent] []

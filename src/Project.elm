@@ -63,6 +63,20 @@ init apiCredentials projectInfo homeId testShow =
 
 -- HANDLERS
 
+calculateSubTasksIndicators subTaskIds calcTasks =
+    let
+        getSubTaskIndicators subTaskId accIndicators =
+            case Dict.get subTaskId calcTasks of
+                Just subTask ->
+                    let tmpIndicators = handleUpdateIndicators accIndicators subTask.indicators in
+                    case subTask.status of
+                        Planned -> {tmpIndicators | wait = tmpIndicators.wait + 1}
+                        Wip -> {tmpIndicators | wip = tmpIndicators.wip + 1}
+                        Closed -> {tmpIndicators | done = tmpIndicators.done + 1}
+                Nothing -> accIndicators
+    in
+    List.foldl getSubTaskIndicators (ProjectIndicators 0 0 0) subTaskIds
+
 createNewProject : String -> ProjectBase
 createNewProject desc =
     ProjectBase desc 0 Dict.empty []
@@ -127,6 +141,10 @@ handleUpdateTask taskId model msg =
     case Dict.get taskId model.base.tasks of
         Just task ->
             let
+                doINeedSaving =
+                    case msg of
+                        OpenTask _ -> model.tmpWaitSave
+                        _ -> True
                 updateTask maybe = case maybe of
                     Just oldTask ->
                         case msg of
@@ -143,7 +161,7 @@ handleUpdateTask taskId model msg =
                 newTasks = Dict.update taskId updateTask model.base.tasks
                 oldBase = model.base
             in
-            ({model | base = {oldBase | tasks = newTasks}, tmpWaitSave = True}, Cmd.none)
+            ({model | base = {oldBase | tasks = newTasks}, tmpWaitSave = doINeedSaving}, Cmd.none)
         Nothing -> (model, Cmd.none)
 
 -- UPDATE
@@ -299,19 +317,6 @@ update msg model =
                                 Planned -> ProjectIndicators sumIndicators 0 0
                                 Wip -> ProjectIndicators 0 sumIndicators 0
                                 Closed -> ProjectIndicators 0 0 sumIndicators
-                        calculateSubTasksIndicators subTaskIds calcTasks =
-                            let
-                                getSubTaskIndicators subTaskId accIndicators =
-                                    case Dict.get subTaskId calcTasks of
-                                        Just subTask ->
-                                            let tmpIndicators = handleUpdateIndicators accIndicators subTask.indicators in
-                                            case subTask.status of
-                                                Planned -> {tmpIndicators | wait = tmpIndicators.wait + 1}
-                                                Wip -> {tmpIndicators | wip = tmpIndicators.wip + 1}
-                                                Closed -> {tmpIndicators | done = tmpIndicators.done + 1}
-                                        Nothing -> accIndicators
-                            in
-                            List.foldl getSubTaskIndicators (ProjectIndicators 0 0 0) subTaskIds
                         -- update sub tasks
                         allSubTaskIds = case task.subTasks of
                             head::tail -> findSubTaskIds model.base.tasks head tail []
@@ -365,6 +370,9 @@ update msg model =
         MoveTask ->
             --
             --
+            -- TODO : tout reste à faire dans cette partie
+            --
+            --
             --
             (model, Cmd.none)
             --
@@ -378,71 +386,38 @@ update msg model =
                             head::tail -> findSubTaskIds model.base.tasks head tail []
                             _ -> []
                         doPurge purgedKey tmpDict = Dict.remove purgedKey tmpDict
-                        purgedTasks = List.foldl doPurge model.base.tasks allSubTaskIds
-                        -- update parent tasks with new calculated values
-                        parentTaskIds = findParentIds purgedTasks task.parentId []
-                        updateTask parentId (tmpTasks, lessIndicators) =
-                            case Dict.get parentId tmpTasks of
-                                Just parentTask ->
-                                    let
-                                        oldParentIndicators = parentTask.indicators
-                                        newParentIndicators = handleUpdateIndicators oldParentIndicators lessIndicators
-                                        (newParentStatus, updateLessIndicators) =
-                                            case parentTask.status of
-                                                Planned -> (Planned, lessIndicators)
-                                                Wip ->
-                                                    if newParentIndicators.wait == 0 && newParentIndicators.wip == 0 then
-                                                        ( Closed
-                                                        , {lessIndicators
-                                                            | wip = lessIndicators.wip - 1
-                                                            , done = lessIndicators.done + 1
-                                                            }
-                                                        )
-                                                    else if newParentIndicators.wip == 0 && newParentIndicators.done == 0 then
-                                                        ( Planned
-                                                        , {lessIndicators
-                                                            | wait = lessIndicators.wait + 1
-                                                            , wip = lessIndicators.wip - 1
-                                                            }
-                                                        )
-                                                    else (Wip, lessIndicators)
-                                                Closed -> (Closed, lessIndicators)
-                                        doUpdate maybeParentTask =
-                                            case maybeParentTask of
-                                                Just tmpParentTask ->
-                                                    Just {tmpParentTask | indicators = newParentIndicators, status = newParentStatus}
-                                                Nothing -> Nothing
-                                    in
-                                    (Dict.update parentId doUpdate tmpTasks, updateLessIndicators)
-                                Nothing -> (tmpTasks, lessIndicators)
-                        removeIndicators =
+                        subPurgedTasks = List.foldl doPurge model.base.tasks allSubTaskIds
+                        -- remove currentTask
+                        currentPurgedTasks = Dict.remove taskId subPurgedTasks
+                        -- recalculate parent indicators
+                        parentTaskIds = findParentIds currentPurgedTasks task.parentId []
+                        doParentPurge parentId accTasks =
                             let
-                                tmpIndicators =
-                                    ProjectIndicators
-                                        -task.indicators.wait
-                                        -task.indicators.wip
-                                        -task.indicators.done
+                                updatePurgedParent maybeParentTask =
+                                    case maybeParentTask of
+                                        Just parentTask ->
+                                            let
+                                                newSubTasks = List.filter (\n -> n /= taskId) parentTask.subTasks
+                                                newParentIndicators = calculateSubTasksIndicators newSubTasks accTasks
+                                                newParentStatus =
+                                                    if newParentIndicators.wip == 0 then
+                                                        if newParentIndicators.done == 0 then Planned
+                                                        else if newParentIndicators.wait == 0 then Closed
+                                                        else Wip
+                                                    else Wip
+                                            in
+                                            Just {parentTask | indicators = newParentIndicators, status = newParentStatus, subTasks = newSubTasks}
+                                        Nothing -> Nothing
                             in
-                            case task.status of
-                                Planned -> {tmpIndicators | wait = tmpIndicators.wait - 1}
-                                Wip -> {tmpIndicators | wait = tmpIndicators.wip - 1}
-                                Closed -> {tmpIndicators | wait = tmpIndicators.done - 1}
-                        (updatedTasks, newIndicators) = List.foldr updateTask (purgedTasks, removeIndicators) parentTaskIds
-                        -- update immediate parent task
-                        updateImmediateParent maybeParentTask =
-                            let newParentSubTasks tmpTask = List.filter (\n -> n /= task.parentId) tmpTask.subTasks in
-                            case maybeParentTask of
-                                Just parentTask -> Just {parentTask | subTasks = newParentSubTasks parentTask}
-                                Nothing -> Nothing
-                        finalTasks = Dict.update task.parentId updateImmediateParent updatedTasks
-                        -- update project values
+                            Dict.update parentId updatePurgedParent accTasks
+                        parentPurgedTasks = List.foldr doParentPurge currentPurgedTasks parentTaskIds
+                        -- final part
                         oldProjectInfo = model.projectInfo
-                        newProjectInfo = {oldProjectInfo | indicators = newIndicators}
-                        -- final steps
-                        newTasks = Dict.remove taskId finalTasks
                         oldBase = model.base
+                        newProjectIndicators = calculateSubTasksIndicators oldBase.topLevel parentPurgedTasks
+                        newProjectInfo = {oldProjectInfo | indicators = newProjectIndicators}
                     in
-                    ({model | projectInfo = newProjectInfo, base = {oldBase | tasks = newTasks}, tmpWaitSave = True}, Cmd.none)
+                    ({model | projectInfo = newProjectInfo, base = {oldBase | tasks = parentPurgedTasks}, tmpWaitSave = True}, Cmd.none)
                 Nothing -> (model, Cmd.none)
         GoToHome _ -> (model, Cmd.none)
 
@@ -468,32 +443,8 @@ view model =
             )
         , (case model.phase of
             Viewing ->
-                div [class "project_tracker"] (List.append
-                        --
-                        --
-                        -- TODO : sortir la div project_tracker pour la réutiliser
-                        --
-                        --
-                        (let
-                            indicators = model.projectInfo.indicators
-                            total = indicators.wait + indicators.wip + indicators.done
-                        in
-                        if total > 0 then
-                            if total == indicators.done then
-                                [ span
-                                    [class "project_end"]
-                                    [text ("Vous avez terminé ce projet ! (soit "++(String.fromInt total)++" tâches)")]
-                                ]
-                            else
-                                [ progressBar indicators
-                                , div [class "project_progress"]
-                                    [ span [class "round_box wait_color"] [text (String.fromInt indicators.wait)]
-                                    , span [class "round_box wip_color"] [text (String.fromInt indicators.wip)]
-                                    , span [class "round_box done_color"] [text (String.fromInt indicators.done)]
-                                    , span [class "round_box total_color"] [text (String.fromInt total)]
-                                    ]
-                                ]
-                        else [Html.nothing])
+                div [class "project_tracker indicators_tracker"] (List.append
+                    (viewIndicatorsTracker model.projectInfo.indicators "ce projet")
                     [ button [class "button_bottomsnap", onClick (AddTask "-1")] [iconAdd]
                     ,
                         if model.tmpWaitSave then button [class "button_bottomsnap", onClick SaveEdit] [iconValid]
@@ -545,6 +496,28 @@ view model =
         )
         ]
 
+viewIndicatorsTracker : ProjectIndicators -> String -> List (Html Msg)
+viewIndicatorsTracker indicators endSentence =
+    let
+        total = indicators.wait + indicators.wip + indicators.done
+    in
+    if total > 0 then
+        if total == indicators.done then
+            [ span
+                [class "project_end"]
+                [text ("Vous avez terminé "++endSentence++" ! (soit "++(String.fromInt total)++" tâches)")]
+            ]
+        else
+            [ progressBar indicators
+            , div [class "indicators_progress"]
+                [ span [class "round_box wait_color"] [text (String.fromInt indicators.wait)]
+                , span [class "round_box wip_color"] [text (String.fromInt indicators.wip)]
+                , span [class "round_box done_color"] [text (String.fromInt indicators.done)]
+                , span [class "round_box total_color"] [text (String.fromInt total)]
+                ]
+            ]
+    else [Html.nothing]
+
 viewTasks : Dict String ProjectTask -> List String -> List (Html Msg)
 viewTasks tasks taskIds =
     List.map (viewTask tasks) taskIds
@@ -559,15 +532,8 @@ viewTask tasks taskId =
                     Wip -> "wip_color"
                     Closed -> "done_color"
                 taskClasses = "task_bar round_box "++statusColor
-                --
-                -- TODO : le select active l'ouverture de la tâche, il faut l'empêcher
-                --
-                --onCustomInput value msg =
-                --    stopPropagationOn "click" (JD.map (\n -> (n, True)) (JD.succeed msg))
-                onCustomClick msg =
-                    stopPropagationOn "click" (JD.map (\n -> (n, True)) (JD.succeed msg)) 
                 statusSelector =
-                    select [class statusColor, onInput (UpdateTaskStatus taskId)]
+                    select [class statusColor, onInput (UpdateTaskStatus taskId), class "task_select round_box"]
                         [ option [class "wait_color", value "planned", selected (task.status == Planned)] [text "Attente"]
                         , option [class "wip_color", value "wip", selected (task.status == Wip)] [text "En cours"]
                         , option [class "done_color", value "closed", selected (task.status == Closed)] [text "Terminée"]
@@ -576,8 +542,8 @@ viewTask tasks taskId =
                     ModeEdit ->
                         ( [class taskClasses]
                         ,
-                            [ button [onCustomClick (ValidTask taskId), class "button_round"] [iconValid]
-                            , button [onCustomClick (CancelTask taskId), class "button_round"] [iconClose]
+                            [ button [onClick (ValidTask taskId), class "button_round"] [iconValid]
+                            , button [onClick (CancelTask taskId), class "button_round"] [iconClose]
                             , statusSelector
                             ]
                         , [textarea [onInput (UpdateTaskDesc taskId), rows 7] [text task.tmpDesc]]
@@ -598,8 +564,8 @@ viewTask tasks taskId =
                         ( (class taskClasses)::(onClick (OpenTask taskId))::(draggable)
                         --
                         ,
-                            [ button [onCustomClick (RemoveTask taskId), class "button_round"] [iconClose]
-                            , button [onCustomClick (EditTask taskId), class "button_round"] [iconEdit]
+                            [ button [onClick (RemoveTask taskId), class "button_round"] [iconClose]
+                            , button [onClick (EditTask taskId), class "button_round"] [iconEdit]
                             , statusSelector
                             ]
                         , case task.opened of
@@ -615,7 +581,7 @@ viewTask tasks taskId =
                                     --
                                 in
                                 List.concat
-                                    [ [div [] [Markdown.toHtml [] task.desc]]
+                                    [ [div [class "task_desc"] [Markdown.toHtml [] task.desc]]
                                     --
                                     -- TODO : ajouter de quoi créer des tâches
                                     -- TODO : s'il y a des sous tâches, alors il faut mettre une progress bar !
@@ -649,16 +615,20 @@ viewTask tasks taskId =
                                 ]
                         ])
             in
-            div []
-                (div actions
-                    ((case task.mode of
-                        ModeEdit ->
-                            input
-                                [ value task.tmpTitle
-                                , onInput (UpdateTaskTitle taskId)
-                                , maxlength 25
-                                , size 28
-                                ] []
-                        _ -> text task.title
-                    )::buttons)::content)
+            div [] (List.append
+                [div [class "task_line"]
+                    ((div actions
+                        [case task.mode of
+                            ModeEdit ->
+                                input
+                                    [ value task.tmpTitle
+                                    , onInput (UpdateTaskTitle taskId)
+                                    , maxlength 30
+                                    , size 32
+                                    ] []
+                            _ -> text task.title
+                        ])::buttons)
+                ]
+                content
+                )
         Nothing -> Html.nothing    

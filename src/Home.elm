@@ -311,7 +311,7 @@ viewProject credentials projectInfo =
                 if indicators.done == total then
                     div [class "centered project_end"] [text "Bravo ! Vous avez terminé ce projet !"]
                 else
-                    div [class "project_progress"]
+                    div [class "indicators_progress"]
                         [ span [class "round_box wait_color"] [text (String.fromInt indicators.wait)]
                         , span [class "round_box wip_color"] [text (String.fromInt indicators.wip)]
                         , span [class "round_box done_color"] [text (String.fromInt indicators.done)]

@@ -115,6 +115,22 @@ div.error {
 
 .iconsBlock { fill: white; }
 
+.indicators_progress { margin-top: 5px; }
+
+.indicators_progress > span {
+    margin: auto 2px;
+    padding: 1px 8px;
+    color: white;
+}
+
+.indicators_tracker > .progress_bar { width: calc(100% - 70px); }
+
+.indicators_tracker > .indicators_progress { float: left; }
+
+.indicators_tracker > hr { margin-top: 0; }
+
+.indicators_tracker > .button_bottomsnap { float: right; }
+
 .progress_bar {
     width: 96%;
     margin-top: 10px;
@@ -180,14 +196,6 @@ div.error {
     font-weight: bold;
 }
 
-.project_progress { margin-top: 5px; }
-
-.project_progress > span {
-    margin: auto 2px;
-    padding: 1px 8px;
-    color: white;
-}
-
 .project_subtasks {
     padding-left: 5px;
     border-left: solid 1px gray;
@@ -203,33 +211,40 @@ div.error {
     margin: auto;
 }
 
-.project_tracker > .progress_bar { width: calc(100% - 70px); }
-
-.project_tracker > .project_progress { float: left; }
-
-.project_tracker > hr { margin-top: 0; }
-
-.project_tracker > .button_bottomsnap { float: right; }
-
 /* TASKS CLASSES */
 
-.task_bar {
-    height: 22px;
-    padding-left: 5px;
+.task_line {
+    height: 20px;
     margin: 5px auto;
+}
+
+.task_line > button { float: right; }
+
+.task_line > .button_round { margin-right: 0; }
+
+.task_bar {
+    height: 20px;
+    padding-left: 5px;
+    margin: 0 auto;
+    width: 70%;
+    float: left;
 }
 .task_bar:hover {
     background: white;
     color: black;
 }
 
-.task_bar > select { height: 22px; }
-
 .task_bar > input { height: 15px; }
 
-.task_bar > button, .task_bar > select { float: right; }
+.task_desc {
+    max-height: 300px;
+    overflow: auto;
+}
 
-.task_bar > .button_round { margin-right: 0; }
+.task_select {
+    height: 22px;
+    float: right;
+}
 
 /* STATUS COLORS */
 
