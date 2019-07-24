@@ -40,6 +40,7 @@ type alias Model =
     , homeId : FileId
     , tmpName : String
     , tmpDesc : String
+    , tmpPreview : Bool
     , tmpWaitSave : Bool
     , phase : ProjectPhase
     , base : ProjectBase
@@ -55,6 +56,7 @@ init apiCredentials projectInfo homeId testShow =
         homeId
         projectInfo.name
         ""
+        False
         False
         (Loading projectInfo)
         (ProjectBase "" 0 Dict.empty [])
@@ -132,7 +134,7 @@ handleUpdateHome model projects =
                 {projectInfo | name = model.tmpName, indicators = model.projectInfo.indicators}
             else projectInfo
         modProjects = List.map letChangeProject projects
-        homeValue = encodeHome modProjects
+        homeValue = encodeHome (modProjects, model.apiCredentials.refreshToken)
     in
     ( {model | phase = Saving 2}
     , apiUpdateFile (FSUpdate model.homeId homeValue) ValidStep2Edit model.apiCredentials)
@@ -176,6 +178,7 @@ handleUpdateTask taskId model msg =
                             EditTask _ -> Just {oldTask | mode = ModeEdit, tmpTitle = task.title, tmpDesc = task.desc}
                             UpdateTaskTitle _ newTitle -> Just {oldTask | tmpTitle = newTitle}
                             UpdateTaskDesc _ newDesc -> Just {oldTask | tmpDesc = newDesc}
+                            UpdateTaskPreview _ -> Just {oldTask | tmpPreview = not oldTask.tmpPreview}
                             RemoveTask _ -> Just {oldTask | mode = ModeRemove}
                             _ -> Just oldTask
                     Nothing -> Nothing
@@ -194,8 +197,9 @@ type Msg
     | CancelEdit
     | UpdateEditName String
     | UpdateEditDesc String
+    | UpdateEditPreview
     | SaveEdit
-    | ValidStep1Edit (Result Http.Error (List ProjectInfo))
+    | ValidStep1Edit (Result Http.Error TracyInfos)
     | ValidStep2Edit (Result Http.Error String)
     | ValidStep3Edit (Result Http.Error String)
     | AddTask String
@@ -205,6 +209,7 @@ type Msg
     | EditTask String
     | UpdateTaskTitle String String
     | UpdateTaskDesc String String
+    | UpdateTaskPreview String
     | UpdateTaskStatus String String
     | MoveTask
     | RemoveTask String
@@ -242,12 +247,13 @@ update msg model =
             ({model | phase = Viewing, tmpName = model.projectInfo.name, tmpDesc = model.base.desc}, Cmd.none)
         UpdateEditName value -> ({model | tmpName = value}, Cmd.none)
         UpdateEditDesc value -> ({model | tmpDesc = value}, Cmd.none)
+        UpdateEditPreview -> ({model | tmpPreview = not model.tmpPreview}, Cmd.none)
         SaveEdit ->
             ( {model | phase = Saving 1}
             , apiReadFile (FSRead model.homeId) ValidStep1Edit decodeHome model.apiCredentials)
         ValidStep1Edit result ->
             case result of
-                Ok projects -> handleUpdateHome model projects
+                Ok tracyInfos -> handleUpdateHome model tracyInfos.projects
                 Err error -> handleError model model.phase error
         ValidStep2Edit result ->
             case result of
@@ -300,6 +306,7 @@ update msg model =
         EditTask taskId -> handleUpdateTask taskId model msg
         UpdateTaskTitle taskId newTitle -> handleUpdateTask taskId model msg
         UpdateTaskDesc taskId newDesc -> handleUpdateTask taskId model msg
+        UpdateTaskPreview taskId -> handleUpdateTask taskId model msg
         UpdateTaskStatus taskId newStatusString ->
             case Dict.get taskId model.base.tasks of
                 Just task ->
@@ -403,8 +410,9 @@ update msg model =
 
 view : Model -> Html Msg
 view model =
+    let optStatusClass = if model.apiCredentials.refreshToken == "" then " not_offline" else "" in
     div [class "core"]
-        [ div [class "zone_status"]
+        [ div [class ("zone_status"++optStatusClass)]
             (case model.phase of
                 Loading infoFile -> [span [] [text ("Projet : "++infoFile.name)]]
                 Failing error ->
@@ -443,6 +451,7 @@ view model =
                     , div [] (viewTasks model.base.tasks model.base.topLevel)
                     ]
             Editing ->
+                let previewText = if model.tmpPreview then "Édition" else "Preview" in
                 div []
                     [ p []
                         [ label [for "project_name"] [text "Nom : "]
@@ -454,10 +463,13 @@ view model =
                             , size 23
                             ] []
                         ]
-                    , p [] [label [for "project_desc"] [text "Description :"]]
-                    , textarea
-                        [id "project_desc", onInput UpdateEditDesc, rows 7]
-                        [text model.tmpDesc]
+                    , p []
+                        [ label [for "project_desc"] [text "Description :"]
+                        , button [onClick UpdateEditPreview, class "button"] [text previewText]
+                        ]
+                    ,
+                        (if model.tmpPreview then Markdown.toHtml [] model.tmpDesc
+                        else textarea [id "project_desc", onInput UpdateEditDesc, rows 11] [text model.tmpDesc])
                     , p [class "centered"]
                         [ button [onClick CancelEdit, class "button_round"] [iconClose]
                         , button [onClick SaveEdit, class "button_round"] [iconValid]
@@ -518,13 +530,18 @@ viewTask tasks taskId =
                         ]
                 (actions, buttons, content) = case task.mode of
                     ModeEdit ->
+                        let previewText = if task.tmpPreview then "Édition" else "Preview" in
                         ( [class taskClasses]
                         ,
                             [ button [onClick (ValidTask taskId), class "button_round"] [iconValid]
                             , button [onClick (CancelTask taskId), class "button_round"] [iconClose]
                             , statusSelector
                             ]
-                        , [textarea [onInput (UpdateTaskDesc taskId), rows 7] [text task.tmpDesc]]
+                        ,
+                            [ ( if task.tmpPreview then Markdown.toHtml [class "task_desc"] task.tmpDesc
+                                else textarea [onInput (UpdateTaskDesc taskId), rows 9] [text task.tmpDesc])
+                            , p [] [button [onClick (UpdateTaskPreview taskId), class "button"] [text previewText]]
+                            ]
                         )
                     ModeView ->
                         let

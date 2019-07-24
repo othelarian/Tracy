@@ -3,7 +3,7 @@ module Home exposing(Model, Msg(..), init, update, view)
 import Api exposing (..)
 import Graphics exposing (..)
 import JsonData
-import JsonData exposing (ProjectIndicators, ProjectInfo)
+import JsonData exposing (ProjectIndicators, ProjectInfo, TracyInfos)
 import Project exposing (createNewProject, init)
 
 import Array
@@ -14,8 +14,11 @@ import Html.Extra as Html
 import Http
 import Json.Decode as JD
 import Json.Encode as JE
+import Markdown
 import Random
 import Task
+
+import Debug
 
 -- MODEL
 
@@ -33,6 +36,7 @@ type HomePhase
     | Failing HomeError
     | Initializing
     | Filling
+    | Granting
     | Listing Adding
     | Creating String
     | Updating JE.Value 
@@ -47,13 +51,14 @@ type alias Model =
     , phase : HomePhase
     , newProjectName : String
     , newProjectDesc : String
+    , newProjectPreview : Bool
     , testValue : String
     , testShow : Bool
     }
 
 init : ApiCredentials -> Bool -> Model
 init apiCredentials testShow =
-    Model apiCredentials "" [] Checking "" "" "" testShow
+    Model apiCredentials "" [] Checking "" "" False "" testShow
 
 -- HANDLERS
 
@@ -86,7 +91,7 @@ handleUpdateAfterDelete model fileId =
     let
         filteredArray = List.filter (\n -> n.fileId /= fileId) model.projects
         newModel = {model | projects = filteredArray}
-        newJson = JsonData.encodeHome newModel.projects
+        newJson = JsonData.encodeHome (newModel.projects, newModel.apiCredentials.refreshToken)
     in
     ({newModel | phase = Updating newJson}, apiUpdateFile (FSUpdate model.homeId newJson) (UpdateInfo True) model.apiCredentials)
 
@@ -102,11 +107,14 @@ type Msg
     = Check (Result Http.Error (List InfoFile))
     | Retry HomeError
     | CreateInit (Result Http.Error String)
-    | FillInfo (Result Http.Error ListProjects)
+    | FillInfo (Result Http.Error TracyInfos)
+    | AskGrantOffline ()
+    | Answer JE.Value
     | UpdateInfo StayHome (Result Http.Error String)
     | AddProject
     | OnNameChange String
     | OnDescChange String
+    | OnPreviewChange
     | CancelProject
     | CreateNameProject
     | CreateProject (List String)
@@ -164,10 +172,42 @@ update msg model =
                 Err error -> handleError model Initializing error
         FillInfo result ->
             case result of
-                Ok listProjects ->
-                    let sortedProjects = List.sortBy .name listProjects in
-                    ({model | projects = sortedProjects, phase = Listing False}, Cmd.none)
+                Ok tracyInfos ->
+                    let
+                        filledModel = {model | projects = List.sortBy .name tracyInfos.projects}
+                        getRefreshToken =
+                            case tracyInfos.refreshToken of
+                                Just token -> token
+                                Nothing -> ""
+                        newApiCredentials newRefreshToken =
+                            let oldApiCredentials = model.apiCredentials in
+                            {oldApiCredentials | refreshToken = newRefreshToken}
+                    in
+                    if getRefreshToken == "" then ({filledModel | phase = Granting}, Task.perform AskGrantOffline (Task.succeed ()))
+                    else ({filledModel | phase = Listing False, apiCredentials = newApiCredentials getRefreshToken}, Cmd.none)
                 Err error -> handleError model Filling error
+        AskGrantOffline _ -> (model, Cmd.none)
+        Answer value ->
+            let checkStatus = JD.decodeValue (JD.field "status" JD.string) value in
+            case checkStatus of
+                Ok status ->
+                    case status of
+                        "Granted" ->
+                            let
+                                authCode = JD.decodeValue (JD.field "authCode" JD.string) value
+                                --
+                                _ = Debug.log "TODO" "gérer le retour depuis le js vers le elm, pour home, avec le code d'auth"
+                                --
+                                --
+                            in
+                            --
+                            --
+                            --
+                            (model, Cmd.none)
+                            --
+                        "NotGranted" -> ({model | phase = Listing False}, Cmd.none)
+                        _ -> ({model | phase = Listing False}, Cmd.none)
+                Err _ -> ({model | phase = Listing False}, Cmd.none)
         UpdateInfo stay result ->
             case result of
                 Ok _ ->
@@ -185,6 +225,7 @@ update msg model =
         AddProject -> ({model | phase = Listing True}, Cmd.none)
         OnNameChange name -> ({model | newProjectName = name}, Cmd.none)
         OnDescChange desc -> ({model | newProjectDesc = desc}, Cmd.none)
+        OnPreviewChange -> ({model | newProjectPreview = not model.newProjectPreview}, Cmd.none)
         CancelProject -> ({model | phase = Listing False}, Cmd.none)
         CreateNameProject -> handleNewNameProject model
         CreateProject generatedName -> handleNewProject model (String.concat generatedName)
@@ -195,7 +236,7 @@ update msg model =
                         projectInfo = ProjectInfo fileId model.newProjectName (ProjectIndicators 0 0 0)
                         newArrayProjects = projectInfo::model.projects
                         newModel = {model | projects = newArrayProjects}
-                        newJson = JsonData.encodeHome newModel.projects
+                        newJson = JsonData.encodeHome (newModel.projects, newModel.apiCredentials.refreshToken)
                     in
                     ({newModel | newProjectName = "", newProjectDesc = "", phase = Updating newJson}
                     , apiUpdateFile (FSUpdate model.homeId newJson) (UpdateInfo False) model.apiCredentials)
@@ -227,8 +268,9 @@ update msg model =
 
 view : Model -> Html Msg
 view model  =
+    let optStatusClass = if model.apiCredentials.refreshToken == "" then " not_offline" else "" in
     div [class "core"]
-        [ div [class "zone_status"]
+        [ div [class ("zone_status"++optStatusClass)]
             (case model.phase of
                 Checking -> [text "Vérification ..."]
                 Failing error ->
@@ -237,6 +279,7 @@ view model  =
                     ]
                 Initializing -> [text "Initialisation ..."]
                 Filling -> [text "Importation ..."]
+                Granting -> [text "Demande offline ..."]
                 Listing addStatus ->
                     case addStatus of
                         True -> [ span [] [text "Ajout d'un projet"] ]
@@ -253,6 +296,7 @@ view model  =
             Listing addStatus ->
                 case addStatus of
                     True ->
+                        let previewText = if model.newProjectPreview then "Édition" else "Preview" in
                         div []
                             [ p []
                                 [ label [for "project_name"] [text "Nom : "]
@@ -265,10 +309,13 @@ view model  =
                                     ]
                                     []
                                 ]
-                            , p [] [label [for "project_desc"] [text "Description (optionnel) :"]]
-                            , textarea
-                                [id "project_desc", onInput OnDescChange, rows 7]
-                                [text model.newProjectDesc]
+                            , p []
+                                [ label [for "project_desc"] [text "Description (optionnel) :"]
+                                , button [onClick OnPreviewChange, class "button"] [text previewText]
+                                ]
+                            ,
+                                ( if model.newProjectPreview then Markdown.toHtml [] model.newProjectDesc
+                                else textarea [id "project_desc", onInput OnDescChange, rows 11] [text model.newProjectDesc])
                             , p [class "centered"]
                                 [ button [onClick CancelProject, class "button_round"] [iconClose]
                                 , button [onClick CreateNameProject, class "button_round"] [iconValid]

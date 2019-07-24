@@ -90,6 +90,7 @@ textarea {
 
 .core {
     margin: auto;
+    margin-bottom: 120px;
     width: 80%;
     min-width: 320px;
     position: relative;
@@ -130,6 +131,8 @@ div.error {
 .indicators_tracker > hr { margin-top: 0; }
 
 .indicators_tracker > .button_bottomsnap { float: right; }
+
+.not_offline { color: purple; }
 
 .progress_bar {
     width: 96%;
@@ -244,8 +247,8 @@ div.error {
 .task_subtasks {
     padding-left: 5px;
     padding-right: 1px;
-    border-left: solid 1px gray;
-    border-right: solid 1px gray;
+    border: solid 1px gray;
+    border-top: none;
 }
 
 /* STATUS COLORS */

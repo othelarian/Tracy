@@ -55,7 +55,8 @@ type alias Token = String
 
 type alias ApiCredentials =
     { apiKey : ApiKey
-    , token : Token
+    , accessToken : Token
+    , refreshToken : Token
     }
 
 type FileSelector
@@ -104,25 +105,25 @@ decodeUploadFile =
 
 apiGetListFiles : FileSelector -> (Result Http.Error (List InfoFile) -> msg) -> ApiCredentials -> Cmd msg
 apiGetListFiles selector message credentials =
-    makeRequest ListFiles selector message decodeListFiles credentials.token credentials.apiKey
+    makeRequest ListFiles selector message decodeListFiles credentials.accessToken credentials.apiKey
 
 apiCreateFile : FileSelector -> (Result Http.Error String -> msg) -> ApiCredentials -> Cmd msg
 apiCreateFile selector message credentials =
-    makeRequest CreateFile selector message decodeUploadFile credentials.token credentials.apiKey
+    makeRequest CreateFile selector message decodeUploadFile credentials.accessToken credentials.apiKey
 
 apiReadFile : FileSelector -> (Result Http.Error a -> msg) -> (Decoder a) -> ApiCredentials -> Cmd msg
 apiReadFile selector message decoder credentials =
-    makeRequest ReadFile selector message decoder credentials.token credentials.apiKey
+    makeRequest ReadFile selector message decoder credentials.accessToken credentials.apiKey
 
 apiUpdateFile : FileSelector -> (Result Http.Error String -> msg) -> ApiCredentials -> Cmd msg
 apiUpdateFile selector message credentials =
-    makeRequest UpdateFile selector message decodeUploadFile credentials.token credentials.apiKey
+    makeRequest UpdateFile selector message decodeUploadFile credentials.accessToken credentials.apiKey
 
 apiDeleteFile : FileId -> (Result Http.Error () -> msg) -> ApiCredentials -> Cmd msg
 apiDeleteFile fileId message credentials =
     Http.request
         { method = "DELETE"
-        , headers = [(Http.header "authorization" ("Bearer "++credentials.token))]
+        , headers = [(Http.header "authorization" ("Bearer "++credentials.accessToken))]
         , url = (UB.crossOrigin "https://www.googleapis.com" ["drive", "v3", "files", fileId] [])
         , body = Http.emptyBody
         , expect = Http.expectWhatever message

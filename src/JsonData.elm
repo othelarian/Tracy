@@ -22,6 +22,11 @@ type alias ProjectInfo =
     , indicators : ProjectIndicators
     }
 
+type alias TracyInfos =
+    { projects : List ProjectInfo
+    , refreshToken : Maybe String
+    }
+
 type ProjectTaskStatus
     = Planned
     | Wip
@@ -43,6 +48,7 @@ type alias ProjectTask =
     , mode : ProjectTaskMode
     , tmpTitle : String
     , tmpDesc : String
+    , tmpPreview : Bool
     , title : String
     , parentId : String
     , status : ProjectTaskStatus
@@ -60,6 +66,7 @@ generateTask init title parentId =
         (if init then ModeEdit else ModeView)
         title
         ""
+        False
         title
         parentId
         Planned
@@ -83,9 +90,11 @@ decodeProjectInfo =
         (field "name" string)
         (field "indicators" decodeIndicators)
 
-decodeHome : JD.Decoder (List ProjectInfo)
+decodeHome : Decoder TracyInfos
 decodeHome =
-    JD.field "projects" (list decodeProjectInfo)
+    JD.map2 TracyInfos
+        (field "projects" (list decodeProjectInfo))
+        (JD.maybe (field "refreshToken" string))
 
 decodeProjectTask : Decoder ProjectTask
 decodeProjectTask =
@@ -96,7 +105,7 @@ decodeProjectTask =
                 "Wip" -> Wip
                 _ -> Closed
     in
-    JD.map6 (ProjectTask False ModeView "" "")
+    JD.map6 (ProjectTask False ModeView "" "" False)
         (field "title" string)
         (field "parentId" string)
         (field "status" (JD.map getProjectTaskStatus string))
@@ -122,8 +131,8 @@ encodeIndicators indicators =
         , ("done", JE.int indicators.done)
         ]
 
-encodeHome : List ProjectInfo -> JE.Value
-encodeHome projects =
+encodeHome : (List ProjectInfo, String) -> JE.Value
+encodeHome (projects, refreshToken) =
     let
         encodeProjectInfo : ProjectInfo -> JE.Value
         encodeProjectInfo projectInfo =
@@ -133,7 +142,10 @@ encodeHome projects =
                 , ("indicators", encodeIndicators projectInfo.indicators)
                 ]
     in
-    JE.object [ ("projects", JE.list encodeProjectInfo projects) ]
+    JE.object
+        [ ("projects", JE.list encodeProjectInfo projects)
+        , ("refreshToken", JE.string refreshToken)
+        ]
 
 encodeProjectTask : ProjectTask -> JE.Value
 encodeProjectTask task =

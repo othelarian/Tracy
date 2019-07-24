@@ -19,9 +19,9 @@ import Json.Decode exposing (Decoder, array, decodeValue, errorToString, field, 
 import Json.Encode as JE
 
 
--- WIP : indicateurs dans une tâche (quand elle a des sous tâches) -> factorisation des indicateurs ?
 -- TODO : intégrer le déplacement par drag'n'drop des tâches
 -- TODO : prévisualisation du markdown ?
+-- TODO : refresh token
 
 
 -- MAIN
@@ -60,7 +60,7 @@ type Model
 init : ApiKey -> (Model, Cmd Msg)
 init apiKey =
     let
-        credentials = ApiCredentials apiKey ""
+        credentials = ApiCredentials apiKey "" ""
         model = guestModel credentials
     in
     (Guest {model | phase = Connecting}, ask "Starting")
@@ -89,9 +89,7 @@ type Answer
 
 decodeAnswer : JE.Value -> Answer
 decodeAnswer value =
-    let
-        checkStatus = decodeValue (field "status" string) value
-    in
+    let checkStatus = decodeValue (field "status" string) value in
     case checkStatus of
         Err error -> AError ("checkStatus error: "++(errorToString error))
         Ok status ->
@@ -117,6 +115,7 @@ type Msg
     = Asking Question
     | ReceptionData JE.Value
     | HomeMsg Home.Msg
+    | HomeTransfert JE.Value
     | ProjectMsg Project.Msg
     | TestCom String
     | TestShow
@@ -158,7 +157,7 @@ update msg model =
                     (Guest {newGuest | phase = Failed info}, Cmd.none)
                 Unconnected ->
                     let
-                        newCredentials = ApiCredentials genModel.apiCredentials.apiKey ""
+                        newCredentials = ApiCredentials genModel.apiCredentials.apiKey "" ""
                     in
                     (Guest (guestModel newCredentials), Cmd.none)
                 Connected resToken ->
@@ -170,7 +169,7 @@ update msg model =
                             (Guest {newGuest | phase = Failed (errorToString error)}, Cmd.none)
                         Ok token ->
                             let
-                                newCredentials = ApiCredentials genModel.apiCredentials.apiKey token
+                                newCredentials = ApiCredentials genModel.apiCredentials.apiKey token ""
                             in
                             ( Home (Home.init newCredentials genModel.testShow)
                             , Cmd.map HomeMsg (apiGetListFiles FSNone Home.Check newCredentials))
@@ -187,7 +186,9 @@ update msg model =
                             credentials
                         )
                     )
+                Home.AskGrantOffline () -> (model, ask "GrantOffline")
                 _ -> updateWith Home HomeMsg (Home.update subMsg home)
+        (HomeTransfert value, Home home) -> updateWith Home HomeMsg (Home.update (Home.Answer value) home)
         (ProjectMsg subMsg, Project project) ->
             case subMsg of
                 Project.GoToHome credentials ->
@@ -237,6 +238,7 @@ update msg model =
 
 port ask : String -> Cmd msg
 port received : (JE.Value -> msg) -> Sub msg
+port homeAnswer : (JE.Value -> msg) -> Sub msg
 port testCom : (String -> msg) -> Sub msg
 
 -- SUBS
@@ -245,6 +247,7 @@ subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
         [ received ReceptionData
+        , homeAnswer HomeTransfert
         , testCom TestCom
         , case model of
             _ -> Sub.none
