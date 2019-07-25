@@ -1,9 +1,11 @@
 import Browser
 import Browser.Navigation as Nav
-import Html exposing (Html, button, div, p, text)
+import Html exposing (Html, text)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput)
 import Url
+
+import Debug
 
 -- MAIN
 
@@ -29,12 +31,13 @@ init : () -> Url.Url -> Nav.Key -> (Model, Cmd Msg)
 init _ url key =
     (Model url key, Cmd.none)
 
+-- HANDLERS
+
 -- UPDATE
 
 type Msg
     = UrlChanged Url.Url
     | UrlRequested Browser.UrlRequest
-    | Connection
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
@@ -45,11 +48,6 @@ update msg model =
             (model, Cmd.none)
             --
         UrlRequested urlRequested ->
-            --
-            --
-            (model, Cmd.none)
-            --
-        Connection ->
             --
             --
             (model, Cmd.none)
@@ -67,7 +65,7 @@ view : Model -> Browser.Document Msg
 view model =
     { title = "identity endpoint test"
     , body =
-        [ p [] [text ("status: "++"")]
-        , button [onClick Connection] [text "Connexion"]
+        [ text "iframe"
         ]
     }
+

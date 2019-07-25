@@ -1,0 +1,8 @@
+[package]
+name = "tracy"
+version = "1.1.0"
+authors = ["othelarian"]
+edition = "2018"
+
+[dependencies]
+web-view = "0.4.0"
