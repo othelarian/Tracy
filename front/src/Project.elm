@@ -608,7 +608,11 @@ viewTask tasks taskId =
                                     , maxlength 30
                                     , size 32
                                     ] []
-                            _ -> text task.title
+                            _ ->
+                                let
+                                    sub = if task.indicators.wait > 0 || task.indicators.wip > 0 || task.indicators.done > 0 then "↡" else ""
+                                in
+                                text (sub++task.title)
                         ])::buttons)
                 ]
                 content

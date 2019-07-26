@@ -1,6 +1,7 @@
 elm-stuff
 app.js
 keys.js
+testEndpoints.js
 Keys.elm
 /target
 **/*.rs.bk

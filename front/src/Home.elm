@@ -183,8 +183,14 @@ update msg model =
                             let oldApiCredentials = model.apiCredentials in
                             {oldApiCredentials | refreshToken = newRefreshToken}
                     in
-                    if getRefreshToken == "" then ({filledModel | phase = Granting}, Task.perform AskGrantOffline (Task.succeed ()))
-                    else ({filledModel | phase = Listing False, apiCredentials = newApiCredentials getRefreshToken}, Cmd.none)
+                    --
+                    --
+                    --if getRefreshToken == "" then ({filledModel | phase = Granting}, Task.perform AskGrantOffline (Task.succeed ()))
+                    --
+                    --else ({filledModel | phase = Listing False, apiCredentials = newApiCredentials getRefreshToken}, Cmd.none)
+                    ({filledModel | phase = Listing False, apiCredentials = newApiCredentials getRefreshToken}, Cmd.none)
+                    --
+                    --
                 Err error -> handleError model Filling error
         AskGrantOffline _ -> (model, Cmd.none)
         Answer value ->

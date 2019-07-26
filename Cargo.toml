@@ -5,4 +5,7 @@ authors = ["othelarian"]
 edition = "2018"
 
 [dependencies]
-web-view = "0.4.0"
+web-view = "0.4.1"
+micro_http_server = "0.0.3"
+directories = "2.0.1"
+serde = "1.0.97"
