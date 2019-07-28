@@ -51,24 +51,7 @@ var app = Elm.Main.init({
     flags: API_KEY
 });
 if (document.getElementById("elm")) { document.getElementById("elm").innerText = 'Bad news from elm...'; }
-else {
-    app.ports.ask.subscribe(function(request) {
-        switch (request) {
-            case "Starting":
-                gapi.load("client:auth2", gapi_initClient);
-                break;
-            case "Authenticate":
-                gapi.auth2.getAuthInstance().signIn();
-                break;
-            case "SignOut":
-                gapi.auth2.getAuthInstance().signOut();
-                break;
-            case "GrantOffline":
-                gapi_grantOffline();
-                break;
-        }
-    });
-}
+else {}
 </script>
 </body>
 </html>

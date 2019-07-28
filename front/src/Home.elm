@@ -3,7 +3,7 @@ module Home exposing(Model, Msg(..), init, update, view)
 import Api exposing (..)
 import Graphics exposing (..)
 import JsonData
-import JsonData exposing (ProjectIndicators, ProjectInfo, TracyInfos)
+import JsonData exposing (ProjectIndicators, ProjectInfo)
 import Project exposing (createNewProject, init)
 
 import Array
@@ -45,7 +45,7 @@ type HomePhase
 type alias ListProjects = List ProjectInfo
 
 type alias Model =
-    { apiCredentials : ApiCredentials
+    { apiToken : ApiToken
     , homeId : FileId
     , projects : ListProjects
     , phase : HomePhase
@@ -56,9 +56,9 @@ type alias Model =
     , testShow : Bool
     }
 
-init : ApiCredentials -> Bool -> Model
-init apiCredentials testShow =
-    Model apiCredentials "" [] Checking "" "" False "" testShow
+init : ApiToken -> Bool -> Model
+init apiToken testShow =
+    Model apiToken "" [] Checking "" "" False "" testShow
 
 -- HANDLERS
 
@@ -68,7 +68,7 @@ handleInit model =
         jsonValue = JE.object [ ("projects", JE.list JE.string []) ]
     in
     ({model | phase = Initializing}
-    , apiCreateFile (FSCreate "tracy" jsonValue) CreateInit model.apiCredentials)
+    , createFile (FSCreate "tracy" jsonValue) CreateInit model.apiToken.accessToken)
 
 handleNewNameProject : Model -> (Model, Cmd Msg)
 handleNewNameProject model =
@@ -84,16 +84,17 @@ handleNewProject model fileName =
         jsonValue = JsonData.encodeProject (createNewProject model.newProjectDesc)
     in
     ({model | phase = Creating fileName}
-    , apiCreateFile (FSCreate fileName jsonValue) ValidateProject model.apiCredentials)
+    , createFile (FSCreate fileName jsonValue) ValidateProject model.apiToken.accessToken)
     
 handleUpdateAfterDelete : Model -> FileId -> (Model, Cmd Msg)
 handleUpdateAfterDelete model fileId =
     let
         filteredArray = List.filter (\n -> n.fileId /= fileId) model.projects
         newModel = {model | projects = filteredArray}
-        newJson = JsonData.encodeHome (newModel.projects, newModel.apiCredentials.refreshToken)
+        newJson = JsonData.encodeHome newModel.projects
     in
-    ({newModel | phase = Updating newJson}, apiUpdateFile (FSUpdate model.homeId newJson) (UpdateInfo True) model.apiCredentials)
+    ( {newModel | phase = Updating newJson}
+    , updateFile (FSUpdate model.homeId newJson) (UpdateInfo True) model.apiToken.accessToken)
 
 handleError : Model -> HomePhase -> Http.Error -> (Model, Cmd Msg)
 handleError model phase error =
@@ -107,9 +108,7 @@ type Msg
     = Check (Result Http.Error (List InfoFile))
     | Retry HomeError
     | CreateInit (Result Http.Error String)
-    | FillInfo (Result Http.Error TracyInfos)
-    | AskGrantOffline ()
-    | Answer JE.Value
+    | FillInfo (Result Http.Error (ListProjects))
     | UpdateInfo StayHome (Result Http.Error String)
     | AddProject
     | OnNameChange String
@@ -122,7 +121,7 @@ type Msg
     | RemoveProject Validation ProjectInfo
     | CheckDeleteProject FileId (Result Http.Error (List InfoFile))
     | DeleteProject FileId (Result Http.Error ())
-    | GoToProject (ProjectInfo, ApiCredentials)
+    | GoToProject (ProjectInfo, ApiToken)
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
@@ -143,77 +142,39 @@ update msg model =
                                     Nothing -> InfoFile "" ""
                             in
                             ({model | phase = Filling, homeId = tracy.fileId}
-                            , apiReadFile (FSRead tracy.fileId) FillInfo JsonData.decodeHome model.apiCredentials)
+                            , readFile (FSRead tracy.fileId) FillInfo JsonData.decodeHome model.apiToken.accessToken)
                         else
                             handleInit model
                 Err error -> handleError model Checking error
         Retry error ->
             case error.phase of
                 Checking ->
-                    ({model | phase = Checking}, apiGetListFiles FSNone Check model.apiCredentials)
+                    ({model | phase = Checking}, getListFiles FSNone Check model.apiToken.accessToken)
                 Initializing ->
-                    ({model | phase = Checking}, apiGetListFiles FSNone Check model.apiCredentials)
+                    ({model | phase = Checking}, getListFiles FSNone Check model.apiToken.accessToken)
                 Filling ->
                     ({model | phase = Filling}
-                    , apiReadFile (FSRead model.homeId) FillInfo JsonData.decodeHome model.apiCredentials)
+                    , readFile (FSRead model.homeId) FillInfo JsonData.decodeHome model.apiToken.accessToken)
                 Creating existingName ->  handleNewProject model existingName
                 Updating jsonValue ->
                     ({model | phase = Updating jsonValue}
-                    , apiUpdateFile (FSUpdate model.homeId jsonValue) (UpdateInfo False) model.apiCredentials)
+                    , updateFile (FSUpdate model.homeId jsonValue) (UpdateInfo False) model.apiToken.accessToken)
                 Removing _ projectInfo ->
                     ({model | phase = Removing True projectInfo}
-                    , apiGetListFiles FSNone (CheckDeleteProject projectInfo.fileId) model.apiCredentials)
+                    , getListFiles FSNone (CheckDeleteProject projectInfo.fileId) model.apiToken.accessToken)
                 _ -> (model, Cmd.none)
         CreateInit result ->
             case result of
                 Ok fileId ->
                     ({model | phase = Filling, homeId = fileId}
-                    , apiReadFile (FSRead fileId) FillInfo JsonData.decodeHome model.apiCredentials)
+                    , readFile (FSRead fileId) FillInfo JsonData.decodeHome model.apiToken.accessToken)
                 Err error -> handleError model Initializing error
         FillInfo result ->
             case result of
-                Ok tracyInfos ->
-                    let
-                        filledModel = {model | projects = List.sortBy .name tracyInfos.projects}
-                        getRefreshToken =
-                            case tracyInfos.refreshToken of
-                                Just token -> token
-                                Nothing -> ""
-                        newApiCredentials newRefreshToken =
-                            let oldApiCredentials = model.apiCredentials in
-                            {oldApiCredentials | refreshToken = newRefreshToken}
-                    in
-                    --
-                    --
-                    --if getRefreshToken == "" then ({filledModel | phase = Granting}, Task.perform AskGrantOffline (Task.succeed ()))
-                    --
-                    --else ({filledModel | phase = Listing False, apiCredentials = newApiCredentials getRefreshToken}, Cmd.none)
-                    ({filledModel | phase = Listing False, apiCredentials = newApiCredentials getRefreshToken}, Cmd.none)
-                    --
-                    --
+                Ok projects ->
+                    let filledModel = {model | projects = List.sortBy .name projects} in
+                    ({filledModel | phase = Listing False}, Cmd.none)
                 Err error -> handleError model Filling error
-        AskGrantOffline _ -> (model, Cmd.none)
-        Answer value ->
-            let checkStatus = JD.decodeValue (JD.field "status" JD.string) value in
-            case checkStatus of
-                Ok status ->
-                    case status of
-                        "Granted" ->
-                            let
-                                authCode = JD.decodeValue (JD.field "authCode" JD.string) value
-                                --
-                                _ = Debug.log "TODO" "gérer le retour depuis le js vers le elm, pour home, avec le code d'auth"
-                                --
-                                --
-                            in
-                            --
-                            --
-                            --
-                            (model, Cmd.none)
-                            --
-                        "NotGranted" -> ({model | phase = Listing False}, Cmd.none)
-                        _ -> ({model | phase = Listing False}, Cmd.none)
-                Err _ -> ({model | phase = Listing False}, Cmd.none)
         UpdateInfo stay result ->
             case result of
                 Ok _ ->
@@ -226,7 +187,7 @@ update msg model =
                                         Just projectInfo -> projectInfo
                                         Nothing -> ProjectInfo "" "" (ProjectIndicators 0 0 0)
                             in
-                            (model, Task.perform GoToProject (Task.succeed (lastProject, model.apiCredentials)))
+                            (model, Task.perform GoToProject (Task.succeed (lastProject, model.apiToken)))
                 Err error -> handleError model model.phase error
         AddProject -> ({model | phase = Listing True}, Cmd.none)
         OnNameChange name -> ({model | newProjectName = name}, Cmd.none)
@@ -242,17 +203,17 @@ update msg model =
                         projectInfo = ProjectInfo fileId model.newProjectName (ProjectIndicators 0 0 0)
                         newArrayProjects = projectInfo::model.projects
                         newModel = {model | projects = newArrayProjects}
-                        newJson = JsonData.encodeHome (newModel.projects, newModel.apiCredentials.refreshToken)
+                        newJson = JsonData.encodeHome newModel.projects
                     in
                     ({newModel | newProjectName = "", newProjectDesc = "", phase = Updating newJson}
-                    , apiUpdateFile (FSUpdate model.homeId newJson) (UpdateInfo False) model.apiCredentials)
+                    , updateFile (FSUpdate model.homeId newJson) (UpdateInfo False) model.apiToken.accessToken)
                 Err error -> handleError model model.phase error
         RemoveProject validation projectInfo ->
             case validation of
                 False -> ({model | phase = Removing False projectInfo}, Cmd.none)
                 True ->
                     ({model | phase = Removing True projectInfo}
-                    , apiGetListFiles FSNone (CheckDeleteProject projectInfo.fileId) model.apiCredentials)
+                    , getListFiles FSNone (CheckDeleteProject projectInfo.fileId) model.apiToken.accessToken)
         CheckDeleteProject fileId result ->
             case result of
                 Ok listFiles ->
@@ -262,7 +223,7 @@ update msg model =
                     if List.isEmpty filteredList then
                         handleUpdateAfterDelete model fileId
                     else
-                        (model, apiDeleteFile fileId (DeleteProject fileId) model.apiCredentials)
+                        (model, deleteFile fileId (DeleteProject fileId) model.apiToken.accessToken)
                 Err error -> handleError model model.phase error
         DeleteProject fileId result ->
             case result of
@@ -274,9 +235,8 @@ update msg model =
 
 view : Model -> Html Msg
 view model  =
-    let optStatusClass = if model.apiCredentials.refreshToken == "" then " not_offline" else "" in
     div [class "core"]
-        [ div [class ("zone_status"++optStatusClass)]
+        [ div [class "zone_status"]
             (case model.phase of
                 Checking -> [text "Vérification ..."]
                 Failing error ->
@@ -332,7 +292,7 @@ view model  =
                             div [class "centered"] [text "Vous n'avez actuellement aucun projet"]
                         else
                             div [class "project_grid"]
-                            (List.map (viewProject model.apiCredentials) model.projects)
+                            (List.map (viewProject model.apiToken) model.projects)
             Removing step projectInfo ->
                 case step of
                     False ->
@@ -350,14 +310,14 @@ view model  =
         )
         ]
 
-viewProject : ApiCredentials -> ProjectInfo -> Html Msg
-viewProject credentials projectInfo =
+viewProject : ApiToken -> ProjectInfo -> Html Msg
+viewProject apiToken projectInfo =
     let
         indicators = projectInfo.indicators
         total = indicators.wait + indicators.wip + indicators.done
     in
     div [class "project_box"]
-        [ a [onClick (GoToProject (projectInfo, credentials))] [text projectInfo.name]
+        [ a [onClick (GoToProject (projectInfo, apiToken))] [text projectInfo.name]
         , button [onClick (RemoveProject False projectInfo), class "button_round"] [iconClose]
         , (
             if total > 0 then

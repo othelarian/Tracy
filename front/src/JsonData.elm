@@ -22,11 +22,6 @@ type alias ProjectInfo =
     , indicators : ProjectIndicators
     }
 
-type alias TracyInfos =
-    { projects : List ProjectInfo
-    , refreshToken : Maybe String
-    }
-
 type ProjectTaskStatus
     = Planned
     | Wip
@@ -90,11 +85,9 @@ decodeProjectInfo =
         (field "name" string)
         (field "indicators" decodeIndicators)
 
-decodeHome : Decoder TracyInfos
+decodeHome : Decoder (List ProjectInfo)
 decodeHome =
-    JD.map2 TracyInfos
-        (field "projects" (list decodeProjectInfo))
-        (JD.maybe (field "refreshToken" string))
+    field "projects" (list decodeProjectInfo)
 
 decodeProjectTask : Decoder ProjectTask
 decodeProjectTask =
@@ -131,8 +124,8 @@ encodeIndicators indicators =
         , ("done", JE.int indicators.done)
         ]
 
-encodeHome : (List ProjectInfo, String) -> JE.Value
-encodeHome (projects, refreshToken) =
+encodeHome : List ProjectInfo -> JE.Value
+encodeHome projects =
     let
         encodeProjectInfo : ProjectInfo -> JE.Value
         encodeProjectInfo projectInfo =
@@ -143,9 +136,7 @@ encodeHome (projects, refreshToken) =
                 ]
     in
     JE.object
-        [ ("projects", JE.list encodeProjectInfo projects)
-        , ("refreshToken", JE.string refreshToken)
-        ]
+        [("projects", JE.list encodeProjectInfo projects)]
 
 encodeProjectTask : ProjectTask -> JE.Value
 encodeProjectTask task =

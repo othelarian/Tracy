@@ -1,19 +1,23 @@
 module Api exposing
-    ( ApiAction(..)
-    , ApiKey
-    , ApiCredentials
-    , InfoFile
+    ( ApiToken
+    , ApiAction(..)
     , FileId
     , FileSelector(..)
+    , InfoFile
     , Token
-    , httpErrorToString
-    , apiGetListFiles
-    , apiCreateFile
-    , apiReadFile
-    , apiUpdateFile
-    , apiDeleteFile
+    , createFile
+    , createIdentityUrl
     , decodeInfoFile
+    , deleteFile
+    , getFirstAccess
+    , getListFiles
+    , getRefreshAccess
+    , httpErrorToString
+    , readFile
+    , updateFile
     )
+
+import Keys
 
 import Bytes.Encode as BE
 import Json.Decode as JD
@@ -36,6 +40,12 @@ httpErrorToString error =
 
 -- API TYPES
 
+type alias ApiToken =
+    { refreshToken : String
+    , accessToken : String
+    , expiresIn : Int
+    }
+
 type ApiAction
     = ListFiles
     | CreateFile
@@ -49,15 +59,7 @@ type alias InfoFile =
     , name : String
     }
 
-type alias ApiKey = String
-
 type alias Token = String
-
-type alias ApiCredentials =
-    { apiKey : ApiKey
-    , accessToken : Token
-    , refreshToken : Token
-    }
 
 type FileSelector
     = FSNone
@@ -89,6 +91,17 @@ prepareBytes name fun value =
 
 -- JSON DECODE
 
+decodeRefreshToken : Decoder ApiToken
+decodeRefreshToken =
+    JD.map3 ApiToken
+        (field "refresh_token" string)
+        (field "access_token" string)
+        (field "expires_in" int)
+
+decodeAccessToken : String -> Decoder ApiToken
+decodeAccessToken refreshToken =
+    JD.map2 (ApiToken refreshToken) (field "access_token" string) (field "expires_in" int)
+
 decodeInfoFile : Decoder InfoFile
 decodeInfoFile =
     JD.map2 InfoFile (field "id" string) (field "name" string)
@@ -101,29 +114,84 @@ decodeUploadFile : Decoder String
 decodeUploadFile =
     field "id" string
 
--- API REQUEST
+-- API URL BUILDER
 
-apiGetListFiles : FileSelector -> (Result Http.Error (List InfoFile) -> msg) -> ApiCredentials -> Cmd msg
-apiGetListFiles selector message credentials =
-    makeRequest ListFiles selector message decodeListFiles credentials.accessToken credentials.apiKey
+createIdentityUrl : String
+createIdentityUrl =
+    UB.crossOrigin
+        "https://accounts.google.com"
+        ["o", "oauth2", "v2", "auth"]
+        [ UB.string "scope" Keys.getScopes
+        , UB.string "access_type" "offline"
+        , UB.string "state" "state_parameter_passthrough_value"
+        , UB.string "redirect_uri" "http://localhost:8000/app.html"
+        , UB.string "response_type" "code"
+        , UB.string "client_id" Keys.getClientId
+        ]
 
-apiCreateFile : FileSelector -> (Result Http.Error String -> msg) -> ApiCredentials -> Cmd msg
-apiCreateFile selector message credentials =
-    makeRequest CreateFile selector message decodeUploadFile credentials.accessToken credentials.apiKey
+-- API TOKEN REQUESTS
 
-apiReadFile : FileSelector -> (Result Http.Error a -> msg) -> (Decoder a) -> ApiCredentials -> Cmd msg
-apiReadFile selector message decoder credentials =
-    makeRequest ReadFile selector message decoder credentials.accessToken credentials.apiKey
+createTokenApiBody : List (String, String) -> String
+createTokenApiBody args =
+    let reduceTuple (first, second) = first++"="++second in
+    String.join "&" (List.map reduceTuple args)
 
-apiUpdateFile : FileSelector -> (Result Http.Error String -> msg) -> ApiCredentials -> Cmd msg
-apiUpdateFile selector message credentials =
-    makeRequest UpdateFile selector message decodeUploadFile credentials.accessToken credentials.apiKey
+getFirstAccess : String -> (Result Http.Error ApiToken -> msg) -> Cmd msg
+getFirstAccess code message =
+    Http.post
+        { url = UB.crossOrigin "https://www.googleapis.com" ["oauth2", "v4", "token"] []
+        , body = Http.stringBody
+            "application/x-www-form-urlencoded"
+            (createTokenApiBody
+                [ ("code", code)
+                , ("client_id", Keys.getClientId)
+                , ("client_secret", Keys.getClientSecret)
+                , ("redirect_uri", "http://localhost:8000/app.html")
+                , ("grant_type", "authorization_code")
+                ]
+            )
+        , expect = Http.expectJson message decodeRefreshToken
+        }
 
-apiDeleteFile : FileId -> (Result Http.Error () -> msg) -> ApiCredentials -> Cmd msg
-apiDeleteFile fileId message credentials =
+getRefreshAccess : String -> (Result Http.Error ApiToken -> msg) -> Cmd msg
+getRefreshAccess refreshToken message =
+    Http.post
+        { url = UB.crossOrigin "https://www.googleapis.com" ["oauth2", "v4", "token"] []
+        , body = Http.stringBody
+            "application/x-www-form-urlencoded"
+            (createTokenApiBody
+                [ ("client_id", Keys.getClientId)
+                , ("client_secret", Keys.getClientSecret)
+                , ("refresh_token", refreshToken)
+                , ("grant_type", "refresh_token")
+                ]
+            )
+        , expect = Http.expectJson message (decodeAccessToken refreshToken)
+        }
+
+-- API DRIVE REQUESTS
+
+getListFiles : FileSelector -> (Result Http.Error (List InfoFile) -> msg) -> Token -> Cmd msg
+getListFiles selector message token =
+    makeRequest ListFiles selector message decodeListFiles token
+
+createFile : FileSelector -> (Result Http.Error String -> msg) -> Token -> Cmd msg
+createFile selector message token =
+    makeRequest CreateFile selector message decodeUploadFile token
+
+readFile : FileSelector -> (Result Http.Error a -> msg) -> (Decoder a) -> Token -> Cmd msg
+readFile selector message decoder token =
+    makeRequest ReadFile selector message decoder token
+
+updateFile : FileSelector -> (Result Http.Error String -> msg) -> Token -> Cmd msg
+updateFile selector message token =
+    makeRequest UpdateFile selector message decodeUploadFile token
+
+deleteFile : FileId -> (Result Http.Error () -> msg) -> Token -> Cmd msg
+deleteFile fileId message token =
     Http.request
         { method = "DELETE"
-        , headers = [(Http.header "authorization" ("Bearer "++credentials.accessToken))]
+        , headers = [(Http.header "authorization" ("Bearer "++token))]
         , url = (UB.crossOrigin "https://www.googleapis.com" ["drive", "v3", "files", fileId] [])
         , body = Http.emptyBody
         , expect = Http.expectWhatever message
@@ -131,10 +199,10 @@ apiDeleteFile fileId message credentials =
         , tracker = Nothing
         }
 
--- MAIN REQUEST
+-- DRIVE REQUEST MAKER
 
-makeRequest : ApiAction -> FileSelector -> (Result Http.Error a -> msg) -> (Decoder a) -> Token -> ApiKey -> Cmd msg
-makeRequest action selector message decoder token apiKey =
+makeRequest : ApiAction -> FileSelector -> (Result Http.Error a -> msg) -> (Decoder a) -> Token -> Cmd msg
+makeRequest action selector message decoder token =
     Http.request
         { method = case action of
             CreateFile -> "POST"
@@ -156,9 +224,7 @@ makeRequest action selector message decoder token apiKey =
                     UpdateFile -> List.append ("upload"::path) [fileId]
                     _ -> List.append path [fileId]
                 )
-                (let
-                    key = [UB.string "key" apiKey]
-                in
+                (let key = [UB.string "key" Keys.getApiKey] in
                 case action of
                     ListFiles -> (UB.string "spaces" "appDataFolder")::key
                     CreateFile -> (UB.string "alt" "json")::(UB.string "uploadType" "multipart")::key

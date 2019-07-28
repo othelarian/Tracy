@@ -65,7 +65,6 @@ fn main() {
             None => thread::sleep(time::Duration::from_millis(500)),
             Some(mut client) => {
                 if client.request().is_none() {
-                    println!("Client {} didn't send any request", client.addr());
                     client.respond_ok("No request :(".as_bytes())
                         .expect("Could not send data to client.");
                 } else {

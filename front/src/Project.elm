@@ -35,7 +35,7 @@ type ProjectPhase
     | Saving Step
 
 type alias Model =
-    { apiCredentials : ApiCredentials
+    { apiToken : ApiToken
     , projectInfo : ProjectInfo
     , homeId : FileId
     , tmpName : String
@@ -48,10 +48,10 @@ type alias Model =
     , testShow : Bool
     }
 
-init : ApiCredentials -> ProjectInfo -> FileId -> Bool -> Model
-init apiCredentials projectInfo homeId testShow =
+init : ApiToken -> ProjectInfo -> FileId -> Bool -> Model
+init apiToken projectInfo homeId testShow =
     Model
-        apiCredentials
+        apiToken
         projectInfo
         homeId
         projectInfo.name
@@ -134,10 +134,10 @@ handleUpdateHome model projects =
                 {projectInfo | name = model.tmpName, indicators = model.projectInfo.indicators}
             else projectInfo
         modProjects = List.map letChangeProject projects
-        homeValue = encodeHome (modProjects, model.apiCredentials.refreshToken)
+        homeValue = encodeHome modProjects
     in
     ( {model | phase = Saving 2}
-    , apiUpdateFile (FSUpdate model.homeId homeValue) ValidStep2Edit model.apiCredentials)
+    , updateFile (FSUpdate model.homeId homeValue) ValidStep2Edit model.apiToken.accessToken)
 
 handleUpdateIndicators : ProjectIndicators -> ProjectIndicators -> ProjectIndicators
 handleUpdateIndicators prevIndicators addedIndicators =
@@ -157,7 +157,7 @@ handleUpdateProject model =
         projectValue = encodeProject newBase
     in
     ( {model | phase = Saving 3, base = newBase, projectInfo = newProjectInfo}
-    , apiUpdateFile (FSUpdate model.projectInfo.fileId projectValue) ValidStep3Edit model.apiCredentials)
+    , updateFile (FSUpdate model.projectInfo.fileId projectValue) ValidStep3Edit model.apiToken.accessToken)
 
 handleUpdateTask : String -> Model -> Msg -> (Model, Cmd Msg)
 handleUpdateTask taskId model msg =
@@ -199,7 +199,7 @@ type Msg
     | UpdateEditDesc String
     | UpdateEditPreview
     | SaveEdit
-    | ValidStep1Edit (Result Http.Error TracyInfos)
+    | ValidStep1Edit (Result Http.Error (List ProjectInfo))
     | ValidStep2Edit (Result Http.Error String)
     | ValidStep3Edit (Result Http.Error String)
     | AddTask String
@@ -214,7 +214,7 @@ type Msg
     | MoveTask
     | RemoveTask String
     | DeleteTask String
-    | GoToHome ApiCredentials
+    | GoToHome ApiToken
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
@@ -228,11 +228,11 @@ update msg model =
             case error.phase of
                 Loading projectInfo ->
                     ( {model | phase = Loading projectInfo}
-                    , apiReadFile (FSRead projectInfo.fileId) (LoadProject projectInfo) decodeProject model.apiCredentials)
+                    , readFile (FSRead projectInfo.fileId) (LoadProject projectInfo) decodeProject model.apiToken.accessToken)
                 Saving step ->
                     if step == 1 then
                         ( {model | phase = Saving 1}
-                        , apiReadFile (FSRead model.homeId) ValidStep1Edit decodeHome model.apiCredentials)
+                        , readFile (FSRead model.homeId) ValidStep1Edit decodeHome model.apiToken.accessToken)
                     else
                         let
                             oldBase = model.base
@@ -240,7 +240,7 @@ update msg model =
                             projectValue = encodeProject newBase
                         in
                         ( {model | phase = Saving 3}
-                        , apiUpdateFile (FSUpdate model.projectInfo.fileId projectValue) ValidStep3Edit model.apiCredentials)
+                        , updateFile (FSUpdate model.projectInfo.fileId projectValue) ValidStep3Edit model.apiToken.accessToken)
                 _ -> (model, Cmd.none)
         AskEdit -> ({model | phase = Editing}, Cmd.none)
         CancelEdit ->
@@ -250,10 +250,10 @@ update msg model =
         UpdateEditPreview -> ({model | tmpPreview = not model.tmpPreview}, Cmd.none)
         SaveEdit ->
             ( {model | phase = Saving 1}
-            , apiReadFile (FSRead model.homeId) ValidStep1Edit decodeHome model.apiCredentials)
+            , readFile (FSRead model.homeId) ValidStep1Edit decodeHome model.apiToken.accessToken)
         ValidStep1Edit result ->
             case result of
-                Ok tracyInfos -> handleUpdateHome model tracyInfos.projects
+                Ok projects -> handleUpdateHome model projects
                 Err error -> handleError model model.phase error
         ValidStep2Edit result ->
             case result of
@@ -410,9 +410,8 @@ update msg model =
 
 view : Model -> Html Msg
 view model =
-    let optStatusClass = if model.apiCredentials.refreshToken == "" then " not_offline" else "" in
     div [class "core"]
-        [ div [class ("zone_status"++optStatusClass)]
+        [ div [class "zone_status"]
             (case model.phase of
                 Loading infoFile -> [span [] [text ("Projet : "++infoFile.name)]]
                 Failing error ->
@@ -421,7 +420,7 @@ view model =
                     ]
                 Viewing ->
                     [ span [] [text model.projectInfo.name]
-                    , button [onClick (GoToHome model.apiCredentials), class "button_topsnap"] [iconClose]
+                    , button [onClick (GoToHome model.apiToken), class "button_topsnap"] [iconClose]
                     , button [onClick AskEdit, class "button_topsnap"] [iconEdit]
                     ]
                 Editing -> [span [] [text model.projectInfo.name]]

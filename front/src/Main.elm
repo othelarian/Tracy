@@ -17,58 +17,70 @@ import Http
 import Json.Decode as JD
 import Json.Decode exposing (Decoder, array, decodeValue, errorToString, field, int, string)
 import Json.Encode as JE
-
-
--- TODO : intégrer le déplacement par drag'n'drop des tâches
--- TODO : prévisualisation du markdown ?
--- TODO : refresh token
-
+import Time
+import Url
+import Url.Parser as UP
+import Url.Parser.Query as UPQ
 
 -- MAIN
 
 main =
-    Browser.document
+    Browser.application
         { init = init
         , update = update
         , subscriptions = subscriptions
         , view = view
+        , onUrlChange = (\_ -> NoOp)
+        , onUrlRequest = (\_ -> NoOp)
         }
 
 -- MODEL
 
 type GuestPhase
-    = Connecting
-    | Login (Maybe String)
+    = Checking
+    | Panic
+    | Login
+    | Refreshing
+    | DriveOff String
+    | Saving
+    | Connecting
     | Failed String
 
 type alias GuestModel =
-    { apiCredentials : ApiCredentials
-    , phase : GuestPhase
+    { phase : GuestPhase
+    , apiToken : ApiToken
     , testValue : String
     , testShow : Bool
     }
 
-guestModel : ApiCredentials -> GuestModel
-guestModel apiCredentials =
-    GuestModel apiCredentials (Login Nothing) "" False
+guestModel : GuestModel
+guestModel =
+    GuestModel Checking (ApiToken "" "" 0) "" False
 
 type Model
     = Guest GuestModel
     | Home Home.Model
     | Project Project.Model
 
-init : ApiKey -> (Model, Cmd Msg)
-init apiKey =
+init : () -> Url.Url -> Nav.Key -> (Model, Cmd Msg)
+init _ url key =
     let
-        credentials = ApiCredentials apiKey "" ""
-        model = guestModel credentials
+        getCode =
+            case UP.parse (UP.query (UPQ.string "code")) {url | path = ""} of
+                Just res -> res
+                Nothing -> Nothing
     in
-    (Guest {model | phase = Connecting}, ask "Starting")
+    case getCode of
+        Just code ->
+            ( Guest {guestModel | phase = Refreshing}
+            , Cmd.batch [Nav.replaceUrl key "http://localhost:8000/app.html", getFirstAccess code GetFirstAccess])
+        Nothing ->
+            (Guest guestModel, Http.get {url = "/getToken", expect = Http.expectString Check})
 
 -- HANDLERS
 
 type alias GenericModel =
-    { apiCredentials : ApiCredentials
+    { apiToken : ApiToken
     , testValue : String
     , testShow : Bool
     }
@@ -76,46 +88,22 @@ type alias GenericModel =
 getGenericModel : Model -> GenericModel
 getGenericModel model =
     case model of
-        Guest guest -> GenericModel guest.apiCredentials guest.testValue guest.testShow
-        Home home -> GenericModel home.apiCredentials home.testValue home.testShow
-        Project project -> GenericModel project.apiCredentials project.testValue project.testShow
-
--- JSON DECODE
-
-type Answer
-    = AError String
-    | Connected (Result JD.Error Token)
-    | Unconnected
-
-decodeAnswer : JE.Value -> Answer
-decodeAnswer value =
-    let checkStatus = decodeValue (field "status" string) value in
-    case checkStatus of
-        Err error -> AError ("checkStatus error: "++(errorToString error))
-        Ok status ->
-            case status of
-                "AError" ->
-                    let
-                        checkDesc = decodeValue (field "desc" string) value
-                    in
-                    case checkDesc of
-                        Err error -> AError ("checkDesc error: "++(errorToString error))
-                        Ok desc -> AError desc
-                "Connected" -> Connected (decodeValue (field "token" string) value)
-                "Unconnected" -> Unconnected
-                _ -> AError "Something went wrong, bad value for status"
+        Guest guest -> GenericModel guest.apiToken guest.testValue guest.testShow
+        Home home -> GenericModel home.apiToken home.testValue home.testShow
+        Project project -> GenericModel project.apiToken project.testValue project.testShow
 
 -- UPDATE
 
-type Question
-    = AskLogIn
-    | AskLogOut
-
 type Msg
-    = Asking Question
-    | ReceptionData JE.Value
+    = NoOp
+    | Check (Result Http.Error String)
+    | AskLogIn
+    | AskFirstAccess
+    | GetFirstAccess (Result Http.Error ApiToken)
+    | SavedToken (Result Http.Error String)
+    | AskRefresh Time.Posix
+    | GetRefresh (Result Http.Error ApiToken)
     | HomeMsg Home.Msg
-    | HomeTransfert JE.Value
     | ProjectMsg Project.Msg
     | TestCom String
     | TestShow
@@ -136,69 +124,71 @@ updateWith toModel toMsg (subModel, subCmd) =
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
     case (msg, model) of
-        (Asking question, Guest guest) ->
-            case question of
-                AskLogIn -> (Guest {guest | phase = Connecting}, ask "Authenticate")
-                _ -> (model, Cmd.none)
-        (Asking question, _) ->
-            case question of
-                AskLogOut -> (model, ask "SignOut")
-                _ -> (model, Cmd.none)
-        (ReceptionData value, _) ->
-            let
-                answer = decodeAnswer value
-                genModel = getGenericModel model
-            in
-            case answer of
-                AError info ->
-                    let
-                        newGuest = guestModel genModel.apiCredentials
-                    in
-                    (Guest {newGuest | phase = Failed info}, Cmd.none)
-                Unconnected ->
-                    let
-                        newCredentials = ApiCredentials genModel.apiCredentials.apiKey "" ""
-                    in
-                    (Guest (guestModel newCredentials), Cmd.none)
-                Connected resToken ->
-                    case resToken of
-                        Err error ->
-                            let
-                                newGuest = guestModel genModel.apiCredentials
-                            in
-                            (Guest {newGuest | phase = Failed (errorToString error)}, Cmd.none)
-                        Ok token ->
-                            let
-                                newCredentials = ApiCredentials genModel.apiCredentials.apiKey token ""
-                            in
-                            ( Home (Home.init newCredentials genModel.testShow)
-                            , Cmd.map HomeMsg (apiGetListFiles FSNone Home.Check newCredentials))
+        (NoOp, _) -> (model, Cmd.none)
+        (Check rep, Guest guest) ->
+            case rep of
+                Ok token ->
+                    case token of
+                        "failed" -> (Guest {guest | phase = Panic}, Cmd.none)
+                        "" -> (Guest {guest | phase = Login}, Cmd.none)
+                        _ -> (Guest {guest | phase = Refreshing}, getRefreshAccess token GetRefresh)
+                Err _ -> (model, Cmd.none)
+        (AskLogIn, _) -> (model, Nav.load createIdentityUrl)
+        (GetFirstAccess res, Guest guest) ->
+            case res of
+                Ok apiToken ->
+                    ( Guest {guest | apiToken = apiToken, phase = Saving}
+                    , Http.get
+                        { url = "http://localhost:8000/saveToken?token="++apiToken.refreshToken
+                        , expect = Http.expectString SavedToken
+                        }
+                    )
+                Err error -> (Guest {guest | phase = DriveOff (httpErrorToString error)}, Cmd.none)
+        (SavedToken res, Guest guest) ->
+            case res of
+                Ok rep ->
+                    case rep of
+                        "saved" ->
+                            ( Home (Home.init guest.apiToken guest.testShow)
+                            , Cmd.map HomeMsg (getListFiles FSNone Home.Check guest.apiToken.accessToken))
+                        "failed" -> (Guest {guest | phase = Panic}, Cmd.none)
+                        _ -> (model, Cmd.none)
+                Err error -> (Guest {guest | phase = Panic}, Cmd.none)
+        (AskRefresh _, _) ->
+            let genModel = getGenericModel model in
+            (model, getRefreshAccess genModel.apiToken.refreshToken GetRefresh)
+        (GetRefresh res, _) ->
+            case res of
+                Ok apiToken ->
+                    case model of
+                        Guest guest ->
+                            ( Home (Home.init apiToken guest.testShow)
+                            , Cmd.map HomeMsg (getListFiles FSNone Home.Check apiToken.accessToken))
+                        Home home -> (Home {home | apiToken = apiToken}, Cmd.none)
+                        Project project -> (Project {project | apiToken = apiToken}, Cmd.none)
+                Err error -> (Guest {guestModel | phase = DriveOff (httpErrorToString error)}, Cmd.none)
         (HomeMsg subMsg, Home home) ->
             case subMsg of
-                Home.GoToProject (projectInfo, credentials) ->
-                    (Project (Project.init credentials projectInfo home.homeId home.testShow)
+                Home.GoToProject (projectInfo, apiToken) ->
+                    (Project (Project.init apiToken projectInfo home.homeId home.testShow)
                     , Cmd.map
                         ProjectMsg
-                        (apiReadFile
+                        (readFile
                             (FSRead projectInfo.fileId)
                             (Project.LoadProject projectInfo)
                             JsonData.decodeProject
-                            credentials
+                            home.apiToken.accessToken
                         )
                     )
-                Home.AskGrantOffline () -> (model, ask "GrantOffline")
                 _ -> updateWith Home HomeMsg (Home.update subMsg home)
-        (HomeTransfert value, Home home) -> updateWith Home HomeMsg (Home.update (Home.Answer value) home)
         (ProjectMsg subMsg, Project project) ->
             case subMsg of
-                Project.GoToHome credentials ->
-                    (Home (Home.init credentials project.testShow)
-                    , Cmd.map HomeMsg (apiGetListFiles FSNone Home.Check credentials))
+                Project.GoToHome apiToken ->
+                    (Home (Home.init apiToken project.testShow)
+                    , Cmd.map HomeMsg (getListFiles FSNone Home.Check project.apiToken.accessToken))
                 _ -> updateWith Project ProjectMsg (Project.update subMsg project)
         (TestCom testMsg, _) ->
-            let
-                genModel = getGenericModel model
-            in
+            let genModel = getGenericModel model in
             case testMsg of
                 "toggle" ->
                     case model of
@@ -207,22 +197,22 @@ update msg model =
                         Project data -> (Project {data | testShow = not genModel.testShow}, Cmd.none)
                 _ -> (model, Cmd.none)
         (TestList, _) ->
-            let (creds, _) = fromModelTest model in (model, apiGetListFiles FSNone TestRepList creds)
+            let (token, _) = fromModelTest model in (model, getListFiles FSNone TestRepList token)
         (TestCreate, _) ->
             let
                 testObject = JE.object
                     [ ("key1", JE.string "value1")
                     , ("key2", JE.string "value2")
                     ]
-                (creds, name) = fromModelTest model
+                (token, name) = fromModelTest model
             in
-            (model, apiCreateFile (FSCreate name testObject) TestRepString creds)
+            (model, createFile (FSCreate name testObject) TestRepString token)
         (TestRead, _) ->
-            let (creds, fileId) = fromModelTest model in
-            (model, apiReadFile (FSRead fileId) TestRepString decodeTestRead creds)
+            let (token, fileId) = fromModelTest model in
+            (model, readFile (FSRead fileId) TestRepString decodeTestRead token)
         (TestDelete, _) ->
-            let (creds, fileId) = fromModelTest model in
-            (model, apiDeleteFile fileId TestRepUnit creds)
+            let (token, fileId) = fromModelTest model in
+            (model, deleteFile fileId TestRepUnit token)
         (TestRepList rep, _) -> (model, Cmd.none)
         (TestRepString rep, _) -> (model, Cmd.none)
         (TestRepValue rep, _) -> (model, Cmd.none)
@@ -236,21 +226,21 @@ update msg model =
 
 -- PORTS
 
-port ask : String -> Cmd msg
-port received : (JE.Value -> msg) -> Sub msg
-port homeAnswer : (JE.Value -> msg) -> Sub msg
 port testCom : (String -> msg) -> Sub msg
 
 -- SUBS
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
+    let genModel = getGenericModel model in
     Sub.batch
-        [ received ReceptionData
-        , homeAnswer HomeTransfert
-        , testCom TestCom
-        , case model of
-            _ -> Sub.none
+        [ testCom TestCom
+        ,
+            if genModel.apiToken.expiresIn > 0 then
+                Time.every
+                    (toFloat ((genModel.apiToken.expiresIn - 10) * 1000))
+                    AskRefresh
+            else Sub.none
         ]
 
 -- VIEW
@@ -258,34 +248,29 @@ subscriptions model =
 view : Model -> Browser.Document Msg
 view model =
     let
-        getDecoBtn : Html Msg
-        getDecoBtn =
-            div [class "panel_deconnect"] [button
-                [onClick (Asking AskLogOut), class "button_topsnap"]
-                [iconExit]
-                ]
-        decoBtn = case model of
-            Guest guest ->
-                case guest.phase of
-                    Login _ -> Html.nothing
-                    Connecting -> Html.nothing
-                    _ -> getDecoBtn
-            _ -> getDecoBtn
         genModel = getGenericModel model
+        getWaiter infos = div [class "waiter"] [text infos]
     in
     { title = "Tracy"
     , body =
-        decoBtn::(case model of
+        (case model of
                 Guest guest ->
                     case guest.phase of
-                        Connecting -> div [class "core waiter"] [text "Connexion en cours ..."]
-                        Login maybe ->
-                            div [class "panel_connect"]
-                                [ button [onClick (Asking AskLogIn), class "button"] [text "Connexion"]
-                                , case maybe of
-                                    Just error -> div [class "error"] [text error]
-                                    Nothing -> Html.nothing
+                        Checking -> getWaiter "Démarrage ..."
+                        Panic ->
+                            div [class "core error"]
+                                [ p [] [text "Une erreur est survenue lors de la lecture de la configuration."]
+                                , p [] [text "Un simple redémarrage peut parfois corriger le problème, mais dans le doute, contacter l'admin."]
                                 ]
+                        Login -> div [class "panel_connect"] [button [onClick AskLogIn, class "button"] [text "Connexion"]]
+                        Refreshing -> getWaiter "Authorisation Drive ..."
+                        Saving -> getWaiter "Sauvegarde configuration ..."
+                        DriveOff error ->
+                            div [class "core error"]
+                                [ p [] [text "Il y a eu une erreur lors de la récupération des infos du drive :"]
+                                , p [] [text error]
+                                ]
+                        Connecting -> getWaiter "Connexion en cours ..."
                         Failed error ->
                             div [class "core error"]
                                 [ p [] [text "Vous êtes bien connecté, mais il y a eu une erreur lors du retour."]
@@ -307,12 +292,12 @@ decodeTestRead : Decoder String
 decodeTestRead =
     JD.oneOf [ field "projects" string, field "name" string]
 
-fromModelTest : Model -> (ApiCredentials, String)
+fromModelTest : Model -> (Token, String)
 fromModelTest model =
     case model of
-        Guest data -> (data.apiCredentials, data.testValue)
-        Home data -> (data.apiCredentials, data.testValue)
-        Project data -> (data.apiCredentials, data.testValue)
+        Guest data -> (data.apiToken.accessToken, data.testValue)
+        Home data -> (data.apiToken.accessToken, data.testValue)
+        Project data -> (data.apiToken.accessToken, data.testValue)
 
 viewTest : GenericModel -> () -> Html Msg
 viewTest genModel _ =
