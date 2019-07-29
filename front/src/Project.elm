@@ -15,6 +15,7 @@ import Json.Decode as JD
 import Json.Decode exposing (Decoder, field, int, list, string)
 import Json.Encode as JE
 import Markdown
+import Url
 
 import Debug
 
@@ -27,15 +28,20 @@ type alias ProjectError =
 
 type alias Step = Int
 
+type DragStatus
+    = Inactive
+    | Active String
+
 type ProjectPhase
     = Loading ProjectInfo
     | Failing ProjectError
-    | Viewing
+    | Viewing DragStatus
     | Editing
     | Saving Step
 
 type alias Model =
     { apiToken : ApiToken
+    , url : Url.Url
     , projectInfo : ProjectInfo
     , homeId : FileId
     , tmpName : String
@@ -48,10 +54,11 @@ type alias Model =
     , testShow : Bool
     }
 
-init : ApiToken -> ProjectInfo -> FileId -> Bool -> Model
-init apiToken projectInfo homeId testShow =
+init : ApiToken -> Url.Url -> ProjectInfo -> FileId -> Bool -> Model
+init apiToken url projectInfo homeId testShow =
     Model
         apiToken
+        url
         projectInfo
         homeId
         projectInfo.name
@@ -211,7 +218,12 @@ type Msg
     | UpdateTaskDesc String String
     | UpdateTaskPreview String
     | UpdateTaskStatus String String
+    --
+    | StartDrag String
+    --
     | MoveTask
+    --
+    --
     | RemoveTask String
     | DeleteTask String
     | GoToHome ApiToken
@@ -222,7 +234,7 @@ update msg model =
         LoadProject infoFile result ->
             case result of
                 Ok projectBase ->
-                    ({model | phase = Viewing , base = projectBase , tmpDesc = projectBase.desc}, Cmd.none)
+                    ({model | phase = Viewing Inactive, base = projectBase , tmpDesc = projectBase.desc}, Cmd.none)
                 Err error -> handleError model model.phase error
         Retry error ->
             case error.phase of
@@ -244,7 +256,7 @@ update msg model =
                 _ -> (model, Cmd.none)
         AskEdit -> ({model | phase = Editing}, Cmd.none)
         CancelEdit ->
-            ({model | phase = Viewing, tmpName = model.projectInfo.name, tmpDesc = model.base.desc}, Cmd.none)
+            ({model | phase = Viewing Inactive, tmpName = model.projectInfo.name, tmpDesc = model.base.desc}, Cmd.none)
         UpdateEditName value -> ({model | tmpName = value}, Cmd.none)
         UpdateEditDesc value -> ({model | tmpDesc = value}, Cmd.none)
         UpdateEditPreview -> ({model | tmpPreview = not model.tmpPreview}, Cmd.none)
@@ -261,7 +273,7 @@ update msg model =
                 Err error -> handleError model (Saving 1) error
         ValidStep3Edit result ->
             case result of
-                Ok _ -> ({model | phase = Viewing, tmpWaitSave = False} , Cmd.none)
+                Ok _ -> ({model | phase = Viewing Inactive, tmpWaitSave = False} , Cmd.none)
                 Err error -> handleError model (Saving 3) error
         AddTask parentId ->
             let
@@ -354,6 +366,16 @@ update msg model =
                     in
                     ({model | projectInfo = finalProjectInfo, base = {oldBase | tasks = parentUpdatedTasks}, tmpWaitSave = True}, Cmd.none)
                 Nothing -> (model, Cmd.none)
+        StartDrag taskId ->
+            --
+            let
+                _ = Debug.log "TODO" ("drag en cours, tâche "++taskId)
+            in
+            --
+            --
+            (model, Cmd.none)
+            --
+            --
         MoveTask ->
             --
             --
@@ -418,7 +440,7 @@ view model =
                     [ span [class "error"] [text "Il y a eu un problème !"]
                     , button [onClick (Retry error), class "button_topsnap"] [text "Réessayer"]
                     ]
-                Viewing ->
+                Viewing _ ->
                     [ span [] [text model.projectInfo.name]
                     , button [onClick (GoToHome model.apiToken), class "button_topsnap"] [iconClose]
                     , button [onClick AskEdit, class "button_topsnap"] [iconEdit]
@@ -427,7 +449,7 @@ view model =
                 Saving _ -> [span [] [text "Mise à jour du projet"]]
             )
         , (case model.phase of
-            Viewing ->
+            Viewing _ ->
                 div [class "project_tracker indicators_tracker"] (List.append
                     (viewIndicatorsTracker model.projectInfo.indicators "ce projet")
                     [ button [class "button_bottomsnap", onClick (AddTask "-1")] [iconAdd]
@@ -441,7 +463,16 @@ view model =
         , (case model.phase of
             Loading _ -> div [class "waiter"] [text "Chargement du projet en cours, veuillez patienter"]
             Failing error -> div [class "error"] [text error.info]
-            Viewing ->
+            Viewing _->
+                --
+                --
+                let
+                    --
+                    _ = Debug.log "TODO" "ajout du DnD ici"
+                    --
+                in
+                --
+                --
                 div []
                     [ (div [class "project_desc"] [
                         (if (String.isEmpty (String.trim model.base.desc)) then text "(Description absente)"
@@ -544,18 +575,18 @@ viewTask tasks taskId =
                         )
                     ModeView ->
                         let
-                            draggable = case task.opened of
+                            isDraggable = case task.opened of
                                 True -> []
                                 False ->
                                     --
                                     let _ = Debug.log "TODO" "rendre draggable, normalement c'est ici" in
                                     --
-                                    []
+                                    [draggable "true", dropzone "true"]
                                     --
                             --
                         in
                         --
-                        ( (class taskClasses)::(onClick (OpenTask taskId))::(draggable)
+                        ( (class taskClasses)::(onClick (OpenTask taskId))::(isDraggable)
                         --
                         ,
                             [ button [onClick (RemoveTask taskId), class "button_round"] [iconClose]

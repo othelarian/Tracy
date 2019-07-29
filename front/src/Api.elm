@@ -116,15 +116,16 @@ decodeUploadFile =
 
 -- API URL BUILDER
 
-createIdentityUrl : String
-createIdentityUrl =
+createIdentityUrl : Url.Url -> String
+createIdentityUrl url =
+    let newUrl = {url | path = "app.html", query = Nothing, fragment = Nothing} in
     UB.crossOrigin
         "https://accounts.google.com"
         ["o", "oauth2", "v2", "auth"]
         [ UB.string "scope" Keys.getScopes
         , UB.string "access_type" "offline"
         , UB.string "state" "state_parameter_passthrough_value"
-        , UB.string "redirect_uri" "http://localhost:8000/app.html"
+        , UB.string "redirect_uri" (Url.toString newUrl)
         , UB.string "response_type" "code"
         , UB.string "client_id" Keys.getClientId
         ]
@@ -136,8 +137,9 @@ createTokenApiBody args =
     let reduceTuple (first, second) = first++"="++second in
     String.join "&" (List.map reduceTuple args)
 
-getFirstAccess : String -> (Result Http.Error ApiToken -> msg) -> Cmd msg
-getFirstAccess code message =
+getFirstAccess : String -> Url.Url -> (Result Http.Error ApiToken -> msg) -> Cmd msg
+getFirstAccess code url message =
+    let newUrl = {url | path = "app.html", query = Nothing, fragment = Nothing} in
     Http.post
         { url = UB.crossOrigin "https://www.googleapis.com" ["oauth2", "v4", "token"] []
         , body = Http.stringBody
@@ -146,7 +148,7 @@ getFirstAccess code message =
                 [ ("code", code)
                 , ("client_id", Keys.getClientId)
                 , ("client_secret", Keys.getClientSecret)
-                , ("redirect_uri", "http://localhost:8000/app.html")
+                , ("redirect_uri", (Url.toString newUrl))
                 , ("grant_type", "authorization_code")
                 ]
             )

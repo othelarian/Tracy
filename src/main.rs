@@ -1,3 +1,4 @@
+extern crate clap;
 extern crate directories;
 extern crate micro_http_server;
 extern crate web_view;
@@ -17,6 +18,14 @@ struct ConfigView<'a> {
 }
 
 fn main() {
+    // get clap infos
+    //
+    // TODO : récupération des infos de clap
+    //
+    //
+    return ();
+    //
+    let port = "8001";
     // check configuration file
     match ProjectDirs::from("inc", "othelarian", "tracy") {
         Some(proj_dirs) => {
@@ -53,7 +62,7 @@ fn main() {
         None => Err(())
     }.unwrap();
     // starting micro server
-    let server = MicroHTTP::new("127.0.0.1:8000")
+    let server = MicroHTTP::new(&format!("127.0.0.1:{}", &port))
         .expect("Cound not create server.");
     thread::spawn(move || loop {
         let result = server.next_client();
@@ -92,11 +101,13 @@ fn main() {
         }
     });
     // start the web view
+    let mut url = format!("http://localhost:{}/", &port);
     let config_view = if cfg!(windows) {
         println!("web view support on windows is bad enough to go play with the browser");
-        ConfigView {url: "http://localhost:8000/windows", width: 250, height: 200}
+        url.push_str("windows");
+        ConfigView {url: &url, width: 250, height: 200}
     } else {
-        ConfigView {url: "http://localhost:8000/", width: 600, height: 800}
+        ConfigView {url: &url, width: 600, height: 800}
     };
     web_view::builder()
         .title("Tracy")

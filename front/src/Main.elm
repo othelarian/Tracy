@@ -49,13 +49,14 @@ type GuestPhase
 type alias GuestModel =
     { phase : GuestPhase
     , apiToken : ApiToken
+    , url : Url.Url
     , testValue : String
     , testShow : Bool
     }
 
-guestModel : GuestModel
-guestModel =
-    GuestModel Checking (ApiToken "" "" 0) "" False
+guestModel : Url.Url ->  GuestModel
+guestModel url =
+    GuestModel Checking (ApiToken "" "" 0) url "" False
 
 type Model
     = Guest GuestModel
@@ -69,18 +70,21 @@ init _ url key =
             case UP.parse (UP.query (UPQ.string "code")) {url | path = ""} of
                 Just res -> res
                 Nothing -> Nothing
+        newModel = guestModel url
     in
     case getCode of
         Just code ->
-            ( Guest {guestModel | phase = Refreshing}
-            , Cmd.batch [Nav.replaceUrl key "http://localhost:8000/app.html", getFirstAccess code GetFirstAccess])
+            let newUrl = {url | query = Nothing, fragment = Nothing} in
+            ( Guest {newModel | phase = Refreshing, url = newUrl}
+            , Cmd.batch [Nav.replaceUrl key (Url.toString newUrl), getFirstAccess code newUrl GetFirstAccess])
         Nothing ->
-            (Guest guestModel, Http.get {url = "/getToken", expect = Http.expectString Check})
+            (Guest newModel, Http.get {url = "/getToken", expect = Http.expectString Check})
 
 -- HANDLERS
 
 type alias GenericModel =
     { apiToken : ApiToken
+    , url : Url.Url
     , testValue : String
     , testShow : Bool
     }
@@ -88,9 +92,9 @@ type alias GenericModel =
 getGenericModel : Model -> GenericModel
 getGenericModel model =
     case model of
-        Guest guest -> GenericModel guest.apiToken guest.testValue guest.testShow
-        Home home -> GenericModel home.apiToken home.testValue home.testShow
-        Project project -> GenericModel project.apiToken project.testValue project.testShow
+        Guest guest -> GenericModel guest.apiToken guest.url guest.testValue guest.testShow
+        Home home -> GenericModel home.apiToken home.url home.testValue home.testShow
+        Project project -> GenericModel project.apiToken project.url project.testValue project.testShow
 
 -- UPDATE
 
@@ -133,13 +137,19 @@ update msg model =
                         "" -> (Guest {guest | phase = Login}, Cmd.none)
                         _ -> (Guest {guest | phase = Refreshing}, getRefreshAccess token GetRefresh)
                 Err _ -> (model, Cmd.none)
-        (AskLogIn, _) -> (model, Nav.load createIdentityUrl)
+        (AskLogIn, _) ->
+            let genModel = getGenericModel model in
+            (model, Nav.load (createIdentityUrl genModel.url))
         (GetFirstAccess res, Guest guest) ->
             case res of
                 Ok apiToken ->
+                    let
+                        modelUrl = guest.url
+                        newUrl = {modelUrl | path = "saveToken", query = Just("token="++apiToken.refreshToken), fragment = Nothing}
+                    in
                     ( Guest {guest | apiToken = apiToken, phase = Saving}
                     , Http.get
-                        { url = "http://localhost:8000/saveToken?token="++apiToken.refreshToken
+                        { url = Url.toString newUrl
                         , expect = Http.expectString SavedToken
                         }
                     )
@@ -149,7 +159,7 @@ update msg model =
                 Ok rep ->
                     case rep of
                         "saved" ->
-                            ( Home (Home.init guest.apiToken guest.testShow)
+                            ( Home (Home.init guest.apiToken guest.url guest.testShow)
                             , Cmd.map HomeMsg (getListFiles FSNone Home.Check guest.apiToken.accessToken))
                         "failed" -> (Guest {guest | phase = Panic}, Cmd.none)
                         _ -> (model, Cmd.none)
@@ -162,15 +172,20 @@ update msg model =
                 Ok apiToken ->
                     case model of
                         Guest guest ->
-                            ( Home (Home.init apiToken guest.testShow)
+                            ( Home (Home.init apiToken guest.url guest.testShow)
                             , Cmd.map HomeMsg (getListFiles FSNone Home.Check apiToken.accessToken))
                         Home home -> (Home {home | apiToken = apiToken}, Cmd.none)
                         Project project -> (Project {project | apiToken = apiToken}, Cmd.none)
-                Err error -> (Guest {guestModel | phase = DriveOff (httpErrorToString error)}, Cmd.none)
+                Err error ->
+                    let
+                        genModel = getGenericModel model
+                        newModel = guestModel genModel.url
+                    in
+                    (Guest {newModel | phase = DriveOff (httpErrorToString error)}, Cmd.none)
         (HomeMsg subMsg, Home home) ->
             case subMsg of
                 Home.GoToProject (projectInfo, apiToken) ->
-                    (Project (Project.init apiToken projectInfo home.homeId home.testShow)
+                    (Project (Project.init apiToken home.url projectInfo home.homeId home.testShow)
                     , Cmd.map
                         ProjectMsg
                         (readFile
@@ -184,7 +199,7 @@ update msg model =
         (ProjectMsg subMsg, Project project) ->
             case subMsg of
                 Project.GoToHome apiToken ->
-                    (Home (Home.init apiToken project.testShow)
+                    (Home (Home.init apiToken project.url project.testShow)
                     , Cmd.map HomeMsg (getListFiles FSNone Home.Check project.apiToken.accessToken))
                 _ -> updateWith Project ProjectMsg (Project.update subMsg project)
         (TestCom testMsg, _) ->

@@ -17,6 +17,7 @@ import Json.Encode as JE
 import Markdown
 import Random
 import Task
+import Url
 
 import Debug
 
@@ -46,6 +47,7 @@ type alias ListProjects = List ProjectInfo
 
 type alias Model =
     { apiToken : ApiToken
+    , url : Url.Url
     , homeId : FileId
     , projects : ListProjects
     , phase : HomePhase
@@ -56,9 +58,9 @@ type alias Model =
     , testShow : Bool
     }
 
-init : ApiToken -> Bool -> Model
-init apiToken testShow =
-    Model apiToken "" [] Checking "" "" False "" testShow
+init : ApiToken -> Url.Url -> Bool -> Model
+init apiToken url testShow =
+    Model apiToken url "" [] Checking "" "" False "" testShow
 
 -- HANDLERS
 
