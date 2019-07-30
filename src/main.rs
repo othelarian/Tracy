@@ -3,6 +3,7 @@ extern crate directories;
 extern crate micro_http_server;
 extern crate web_view;
 
+use clap::{Arg, App};
 use directories::ProjectDirs;
 use micro_http_server::{MicroHTTP, Client};
 use web_view::*;
@@ -17,15 +18,35 @@ struct ConfigView<'a> {
     height: i32
 }
 
+fn validate_port(v: String) -> Result<(), String> {
+    match v.parse::<u16>().is_ok() {
+        true => Ok(()),
+        false => Err(String::from("This is not a valid integer for the port"))
+    }
+}
+
 fn main() {
     // get clap infos
-    //
-    // TODO : récupération des infos de clap
-    //
-    //
-    return ();
-    //
-    let port = "8001";
+    let matches = App::new("Tracy")
+        .version("1.2.0")
+        .about("Todo tRACker for Yourself (yes it's a retro acronym ;)")
+        .author("othelarian")
+        .arg(Arg::with_name("port")
+            .help("Set this value if you want to change the app port (default: 8001)")
+            .short("p")
+            .long("port")
+            .value_name("PORT")
+            .takes_value(true)
+            .validator(validate_port)
+        )
+        .arg(Arg::with_name("server")
+            .help("Use this value to launch Tracy back only as a server")
+            .short("s")
+            .long("server")
+        )
+        .get_matches();
+    let served = matches.is_present("server");
+    let port = matches.value_of("port").unwrap_or("8001");
     // check configuration file
     match ProjectDirs::from("inc", "othelarian", "tracy") {
         Some(proj_dirs) => {
@@ -100,6 +121,12 @@ fn main() {
             }
         }
     });
+    if served {
+        println!("You launch Tracy back as a server, on port {}", port);
+        let mut w = String::new();
+        io::stdin().read_line(&mut w).unwrap();
+        return;
+    }
     // start the web view
     let mut url = format!("http://localhost:{}/", &port);
     let config_view = if cfg!(windows) {
