@@ -19,8 +19,6 @@ import Random
 import Task
 import Url
 
-import Debug
-
 -- MODEL
 
 type alias HomeError =
