@@ -3,7 +3,6 @@
 <head>
     <meta charset="UTF-8">
     <title>Tracy</title>
-    <script src="https://apis.google.com/js/api.js"></script>
     <script src="keys.js"></script>
     <script src="app.js"></script>
     <link rel="stylesheet" type="text/css" href="theme.css" />
@@ -12,44 +11,9 @@
 <body>
 <div id="elm"></div>
 <script>
-var DISCOVERY_DOCS = ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"];
-var SCOPES = "https://www.googleapis.com/auth/drive.appdata";
-
-function gapi_initClient() {
-    gapi.client.init({
-        apiKey: API_KEY,
-        clientId: CLIENT_ID,
-        discoveryDocs: DISCOVERY_DOCS,
-        scope: SCOPES
-    }).then(function() {
-        gapi.auth2.getAuthInstance().isSignedIn.listen(gapi_updateSignInStatus);
-        gapi_updateSignInStatus(gapi.auth2.getAuthInstance().isSignedIn.get());
-    }, function(error) {
-        app.ports.received.send({"status": "Error", "desc": JSON.stringify(error)});
-    });
-}
-
-function gapi_updateSignInStatus(isSignedIn) {
-    var data = {"status": isSignedIn? "Connected" : "Unconnected"};
-    if (isSignedIn) { data["token"] = gapi.auth.getToken().access_token; }
-    app.ports.received.send(data);
-}
-
-function gapi_grantOffline() {
-    gapi.auth2.getAuthInstance().grantOfflineAccess().then(function(success) {
-        app.ports.received.send({"status": "Granted", "authCode": success.code})
-    }, function(error) {
-        console.log(error);
-        app.ports.homeAnswer.send({"status": "NotGranted"});
-    });
-}
-
 function toggleTest() { app.ports.testCom.send("toggle"); }
 
-var app = Elm.Main.init({
-    node: document.getElementById("elm"),
-    flags: API_KEY
-});
+var app = Elm.Main.init({node: document.getElementById("elm")});
 if (document.getElementById("elm")) { document.getElementById("elm").innerText = 'Bad news from elm...'; }
 else {}
 </script>
