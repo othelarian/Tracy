@@ -2,7 +2,7 @@ import Browser
 import Dict exposing (Dict)
 import Html exposing (..)
 import Html.Attributes exposing (..)
-import Html.Events exposing (on, onClick, preventDefaultOn)
+import Html.Events exposing (on, onClick, preventDefaultOn, stopPropagationOn)
 import Json.Decode as Decode
 
 import Debug
@@ -55,14 +55,58 @@ init _ =
     in
     (newModel, Cmd.none)
 
+-- HANDLERS
+
+dragHandler :
+    { task: Task                -- the actual dragged task
+    , tasks: Dict TaskId Task   -- the good old dict with all the tasks
+    , topLevel: List TaskId     -- the first level task
+    , dragId: TaskId            -- the id of the actual dragged task
+    , dragParent: TaskId        -- the id of the parent we want the task be linked to
+    , dragOrder: List TaskId    -- the order of the subtasks we want to apply for the parent
+    }
+    -> (List TaskId, Dict TaskId Task)
+dragHandler data =
+    let
+        (cancelTopLevel, cancelTasks) =
+            let filtering theList = List.filter (\n -> n /= data.dragId) theList in
+            
+            if data.task.parentId == "-1" then (filtering data.topLevel, data.tasks)
+            else
+                let
+                    doCancelUpdate maybeParent =
+                        case maybeParent of
+                            Just parentTask ->
+                                Just {parentTask | subTasks = filtering parentTask.subTasks}
+                            Nothing -> Nothing
+                in
+                (data.topLevel, Dict.update data.task.parentId doCancelUpdate data.tasks)
+        (oldTopLevel, oldTasks) =
+            if data.dragParent == "-1" then (data.dragOrder, cancelTasks)
+            else
+                let
+                    doOldUpdate maybeParent =
+                        case maybeParent of
+                            Just parentTask -> Just {parentTask | subTasks = data.dragOrder}
+                            Nothing -> Nothing
+                in
+                (cancelTopLevel, Dict.update data.dragParent doOldUpdate cancelTasks)
+        doLastUpdate maybeTask =
+            case maybeTask of
+                Just theTask -> Just {theTask | parentId = data.dragParent}
+                Nothing -> Nothing
+        finalTasks = Dict.update data.dragId doLastUpdate oldTasks
+    in
+    (oldTopLevel, finalTasks)
+
 -- UPDATE
 
 type Msg
     = NoOp
     | ToggleTask TaskId
     | DragStart TaskId
-    --| DragEnter
-    --| DragLeave
+    | DragMove TaskId TaskId
+    | DragAdd TaskId
     | DragOver
     | DragCancel
     | DragDrop
@@ -100,9 +144,49 @@ update msg model =
                         }
                     , Cmd.none)
                 Nothing -> (model, Cmd.none)
+        DragMove parentId taskId ->
             --
-        --DragEnter -> ({model | dragOver = True}, Cmd.none)
-        --DragLeave -> ({model | dragOver = False}, Cmd.none)
+            -- TODO : récupération de la tâche, pour accéder à son parent
+            -- TODO : récupération des subtasks du parent / du topLevel
+            -- TODO : suivant la posi
+            --
+            let
+                --
+                --
+                index theList = List.indexedMap Tuple.pair theList
+                --
+            in
+            if parentId == "-1" then
+                --
+                index model.topLevel
+                --
+                --
+            else
+                let
+                    --
+                    --
+                    case Dict.get parentId model.tasks of
+                    --
+                in
+            --
+            --
+            (model, Cmd.none)
+            --
+        DragAdd taskId ->
+            case Dict.get taskId model.tasks of
+                Just task ->
+                    let
+                        (addTopLevel, addTasks) = dragHandler
+                            { task = task
+                            , tasks = model.tasks
+                            , topLevel = model.topLevel
+                            , dragId = model.tmpDragId
+                            , dragParent = taskId
+                            , dragOrder = [model.tmpDragId]
+                            }
+                    in
+                    ({model | topLevel = addTopLevel, tasks = addTasks}, Cmd.none)
+                Nothing -> (model, Cmd.none)
         DragOver -> (model, Cmd.none)
         DragCancel ->
             case model.dragRun of
@@ -118,76 +202,26 @@ update msg model =
                     in
                     case Dict.get model.tmpDragId model.tasks of
                         Just task ->
-                            --
-                            --
-                            -- TODO : mise à jour de la tâche parente actuelle -> OK
-                            -- TODO : mise à jour de l'ancienne tâche parente
-                            -- TODO : mise à jour de la tâche
-                            --
-                            --
                             let
-                                (cancelTopLevel, cancelParentTasks) =
-                                    if task.parentId == "-1" then
-                                        ( List.filter
-                                            (\n -> n /= model.tmpDragId)
-                                            prepareModel.topLevel
-                                        , model.tasks)
-                                    else
-                                        let
-                                            doCancelParent maybeTask =
-                                                case maybeTask of
-                                                    Just parentTask ->
-                                                        let
-                                                            filteredSubTasks =
-                                                                List.filter
-                                                                    (\n -> n /= model.tmpDragId)
-                                                                    parentTask.subTasks
-                                                        in
-                                                        Just {parentTask | subTasks = filteredSubTasks}
-                                                    Nothing -> Nothing
-                                        in
-                                        ( prepareModel.topLevel
-                                        , Dict.update task.parentId doCancelParent prepareModel.tasks)
-                                (oldTopLevel, oldParentTasks) =
-                                    if model.tmpDragParent == "-1" then
-                                        (model.tmpDragOrder, cancelParentTasks)
-                                    else
-                                        let
-                                            --
-                                            doUpdateParent maybeTask =
-                                                case maybeTask of
-                                                    Just parentTask ->
-                                                        --
-                                                        --
-                                                        --
-                                                    Nothing -> Nothing
-                                            --
-                                            --
-                                        in
-                                        --
-                                        ( cancelTopLevel
-                                        , ())
-                                        --
-                                --
-                                --
-                                --updatedModel = {prepareModel | tasks = ???}
-                                updatedModel = prepareModel
-                                --
+                                (cancelTopLevel, cancelTasks) = dragHandler
+                                    { task = task
+                                    , tasks = model.tasks
+                                    , topLevel = model.topLevel
+                                    , dragId = model.tmpDragId
+                                    , dragParent = model.tmpDragParent
+                                    , dragOrder = model.tmpDragOrder
+                                    }
+                                updatedModel = {prepareModel
+                                    | tasks = cancelTasks
+                                    , topLevel = cancelTopLevel
+                                    }
                             in
                             (finalModel updatedModel, Cmd.none)
                         Nothing -> (finalModel prepareModel, Cmd.none)
                 False -> (model, Cmd.none)
         DragDrop ->
-            --
-            let
-                --
-                _ = Debug.log "Drag" "END"
-                --
-                --
-            in
-            --
-            (model, Cmd.none)
-            --
+            ( {model | tmpDragId = "", tmpDragParent = "", tmpDragOrder = [], dragRun = False}
+            , Cmd.none)
 
 -- SUBS
 
@@ -201,8 +235,7 @@ view : Model -> Browser.Document Msg
 view model =
     { title = "test drag'n'drop"
     , body =
-        [ div
-            []
+        [ div []
             (viewTasks model.tasks model.tmpDragId model.topLevel)
         ]
     }
@@ -219,8 +252,6 @@ viewTask tasks dragId taskId =
     case Dict.get taskId tasks of
         Just task ->
             if taskId == dragId then
-                --
-                --
                 div
                     [ attribute "style" "border: dotted 1px gray;width:200px;"
                     , dropzone "true"
@@ -229,33 +260,40 @@ viewTask tasks dragId taskId =
                     , preventDefaultOn "drop" (Decode.map prevDef (Decode.succeed DragDrop))
                     ]
                     [div [] [text "&amp;"]]
-                --
             else
                 let
                     taskTitle =
                         div
                             [ onClick (ToggleTask taskId)
-                            , draggable "true"
+                            , draggable (if task.opened then "false" else "true")
                             , on "dragstart" (Decode.succeed (DragStart taskId))
                             , on "dragend" (Decode.succeed DragCancel)
                             , style "background" "yellow"
                             ]
                             [text task.title]
-                    --
-                    --
                 in
                 div
-                    [attribute "style" "border:solid 1px black;width:200px;"]
+                    (List.append
+                        (if task.opened then []
+                        else [stopPropagationOn
+                            "dragenter"
+                            (Decode.map prevDef (Decode.succeed (DragMove task.parentId taskId)))])
+                        [attribute "style" "border:solid 1px black;width:200px;"]
+                    )
                     (taskTitle::(if task.opened then
-                        --
                         [div [style "margin" "3px"] 
                             (if List.isEmpty task.subTasks then
-                                []
+                                [div
+                                    [ stopPropagationOn
+                                        "dragenter"
+                                        (Decode.map prevDef (Decode.succeed (DragAdd taskId)))
+                                    , attribute "style" "height:10px;background:blue;"
+                                    ]
+                                    []
+                                ]
                             else
                                 (viewTasks tasks dragId task.subTasks)
                             )
                         ]
-                        --
-                        --
                     else []))
         Nothing -> text ""
