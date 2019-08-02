@@ -1,8 +1,9 @@
 import Browser
+import Browser.Events as BE
 import Dict exposing (Dict)
 import Html exposing (..)
 import Html.Attributes exposing (..)
-import Html.Events exposing (on, onClick, preventDefaultOn, stopPropagationOn)
+import Html.Events exposing (..)
 import Json.Decode as Decode
 
 import Debug
@@ -28,8 +29,14 @@ type alias Task =
     , subTasks : List TaskId
     }
 
+type alias MousePoint =
+    { x : Int
+    , y : Int
+    }
+
 type alias Model =
     { tasks : Dict TaskId Task
+    , dragStart : Bool
     , dragRun : Bool
     , tmpDragId : TaskId
     , tmpDragParent : TaskId
@@ -51,7 +58,7 @@ init _ =
             |> Dict.insert "7" (Task False "tache 4.1" "6" [])
             |> Dict.insert "8" (Task False "tache 4.2" "6" [])
             |> Dict.insert "9" (Task False "tache 4.3" "6" [])
-        newModel = Model newTasks False "" "" [] ["0", "4", "5", "6"]
+        newModel = Model newTasks False False "" "" [] ["0", "4", "5", "6"]
     in
     (newModel, Cmd.none)
 
@@ -68,9 +75,11 @@ dragHandler :
     -> (List TaskId, Dict TaskId Task)
 dragHandler data =
     let
+        --
+        --
+        --
         (cancelTopLevel, cancelTasks) =
             let filtering theList = List.filter (\n -> n /= data.dragId) theList in
-            
             if data.task.parentId == "-1" then (filtering data.topLevel, data.tasks)
             else
                 let
@@ -105,10 +114,14 @@ type Msg
     = NoOp
     | ToggleTask TaskId
     | DragStart TaskId
+    --| DragMove Decode.Value
     | DragMove TaskId TaskId
     | DragAdd TaskId
     | DragOver
-    | DragCancel
+    | DragDropIn
+    | DragDropOut
+    | DragStop
+    --| DragCancel
     | DragDrop
 
 update : Msg -> Model -> (Model, Cmd Msg)
@@ -129,6 +142,11 @@ update msg model =
             case Dict.get taskId model.tasks of
                 Just task ->
                     let
+                        --
+                        _ = Debug.log "INFO START" ("Task parentId -> "++task.parentId)
+                        --
+                        --
+                        --
                         tmpListTasks =
                             if task.parentId == "-1" then model.topLevel
                             else
@@ -145,11 +163,13 @@ update msg model =
                     , Cmd.none)
                 Nothing -> (model, Cmd.none)
         DragMove parentId taskId ->
+        --DragMove value ->
             --
             -- TODO : récupération de la tâche, pour accéder à son parent
             -- TODO : récupération des subtasks du parent / du topLevel
             -- TODO : suivant la posi
             --
+            {-
             let
                 --
                 --
@@ -168,14 +188,19 @@ update msg model =
                     case Dict.get parentId model.tasks of
                     --
                 in
+            -}
             --
             --
             (model, Cmd.none)
             --
         DragAdd taskId ->
-            case Dict.get taskId model.tasks of
+            case Dict.get model.tmpDragId model.tasks of
                 Just task ->
                     let
+                        --
+                        _ = Debug.log "INFO ADD" ("task parentId -> "++task.parentId)
+                        --
+                        --
                         (addTopLevel, addTasks) = dragHandler
                             { task = task
                             , tasks = model.tasks
@@ -188,7 +213,35 @@ update msg model =
                     ({model | topLevel = addTopLevel, tasks = addTasks}, Cmd.none)
                 Nothing -> (model, Cmd.none)
         DragOver -> (model, Cmd.none)
-        DragCancel ->
+        DragDropIn ->
+            --
+            --
+            --
+            (model, Cmd.none)
+            --
+        DragDropOut ->
+            --
+            --
+            (model, Cmd.none)
+            --
+        DragStop ->
+            --
+            let
+                --
+                _ = Debug.log "DRAG" "STOP"
+                --
+                --
+            in
+            --
+            (model, Cmd.none)
+            --
+        {-DragCancel ->
+            let
+                --
+                --
+                _ = Debug.log "DRAG CANCEL" "drag cancel"
+                --
+            in
             case model.dragRun of
                 True ->
                     let
@@ -219,6 +272,7 @@ update msg model =
                             (finalModel updatedModel, Cmd.none)
                         Nothing -> (finalModel prepareModel, Cmd.none)
                 False -> (model, Cmd.none)
+        -}
         DragDrop ->
             ( {model | tmpDragId = "", tmpDragParent = "", tmpDragOrder = [], dragRun = False}
             , Cmd.none)
@@ -227,7 +281,9 @@ update msg model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Sub.none
+    case model.dragRun of
+        False -> Sub.none
+        True -> BE.onMouseUp (Decode.succeed DragStop)
 
 -- VIEW
 
@@ -255,7 +311,9 @@ viewTask tasks dragId taskId =
                 div
                     [ attribute "style" "border: dotted 1px gray;width:200px;"
                     , dropzone "true"
-                    , on "dragend" (Decode.succeed DragCancel)
+                    --, on "dragend" (Decode.succeed DragCancel)
+                    --, onMouseEnter DragDropIn
+                    --, onMouseLeave DragDropOut
                     , preventDefaultOn "dragover" (Decode.map prevDef (Decode.succeed DragOver))
                     , preventDefaultOn "drop" (Decode.map prevDef (Decode.succeed DragDrop))
                     ]
@@ -265,9 +323,12 @@ viewTask tasks dragId taskId =
                     taskTitle =
                         div
                             [ onClick (ToggleTask taskId)
+                            --, onMouseDown (DragStart taskId)
                             , draggable (if task.opened then "false" else "true")
                             , on "dragstart" (Decode.succeed (DragStart taskId))
-                            , on "dragend" (Decode.succeed DragCancel)
+                            --, preventDefaultOn "dragend" (Decode.map prevDef (Decode.succeed DragCancel))
+                            --, attribute "ondragend" "function(){console.log('test cancel')};"
+                            , class "ondrag"
                             , style "background" "yellow"
                             ]
                             [text task.title]
@@ -278,6 +339,8 @@ viewTask tasks dragId taskId =
                         else [stopPropagationOn
                             "dragenter"
                             (Decode.map prevDef (Decode.succeed (DragMove task.parentId taskId)))])
+                            --}
+                        --[]
                         [attribute "style" "border:solid 1px black;width:200px;"]
                     )
                     (taskTitle::(if task.opened then
