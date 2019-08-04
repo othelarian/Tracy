@@ -1,6 +1,7 @@
 import Browser
 import Browser.Events as BE
 import Dict exposing (Dict)
+import DnDList.Groups
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
@@ -22,6 +23,8 @@ main =
 
 type alias TaskId = String
 
+type alias Group = TaskId
+
 type alias Task =
     { opened : Bool
     , title : String
@@ -29,18 +32,17 @@ type alias Task =
     , subTasks : List TaskId
     }
 
-type alias MousePoint =
-    { x : Int
-    , y : Int
+type alias DnDTask =
+    { id : TaskId
+    , group : Group
+    , foot : Bool
     }
 
 type alias Model =
     { tasks : Dict TaskId Task
-    , dragPrelude : Bool
-    , dragRun : Bool
-    , tmpDragId : TaskId
-    , tmpDragParent : TaskId
-    , tmpDragOrder : List TaskId
+    , dnd : DnDList.Groups.Model
+    , dndItems : List DnDTask
+    , dragRunning : Maybe (Int, DnDTask)
     , topLevel : List TaskId
     }
 
@@ -58,63 +60,102 @@ init _ =
             |> Dict.insert "7" (Task False "tache 4.1" "6" [])
             |> Dict.insert "8" (Task False "tache 4.2" "6" [])
             |> Dict.insert "9" (Task False "tache 4.3" "6" [])
-        newModel = Model newTasks False False "" "" [] ["0", "4", "5", "6"]
+        topLevel = ["0", "4", "5", "6"]
+        dndItems =
+            List.foldr (\n a -> (createItem n "-1")::a) [(DnDTask "f-1" "-1" True)] topLevel
     in
-    (newModel, Cmd.none)
+    (Model newTasks system.model dndItems Nothing topLevel, Cmd.none)
+
+-- DND SYSTEM
+
+config: DnDList.Groups.Config DnDTask
+config =
+    { beforeUpdate = \_ _ list -> list
+    , listen = DnDList.Groups.OnDrag
+    , operation = DnDList.Groups.Rotate
+    , groups =
+        { listen = DnDList.Groups.OnDrag
+        , operation = DnDList.Groups.InsertBefore
+        , comparator = comparator
+        , setter = setter
+        }
+    }
+
+comparator : DnDTask -> DnDTask -> Bool
+comparator task1 task2 = task1.group == task2.group
+
+setter : DnDTask -> DnDTask -> DnDTask
+setter task1 task2 = {task2 | group = task1.group}
+
+system : DnDList.Groups.System DnDTask Msg
+system = DnDList.Groups.create config DnDMsg
 
 -- HANDLERS
 
-dragHandler :
-    { task: Task                -- the actual dragged task
-    , tasks: Dict TaskId Task   -- the good old dict with all the tasks
-    , topLevel: List TaskId     -- the first level task
-    , dragId: TaskId            -- the id of the actual dragged task
-    , dragParent: TaskId        -- the id of the parent we want the task be linked to
-    , dragOrder: List TaskId    -- the order of the subtasks we want to apply for the parent
-    }
-    -> (List TaskId, Dict TaskId Task)
-dragHandler data =
+calculateOffset : Int -> Group -> List DnDTask -> Int
+calculateOffset index group list =
+    case list of
+        [] -> 0
+        x :: xs ->
+            if x.group == group then index
+            else calculateOffset (index + 1) group xs
+
+createItem : TaskId -> Group -> DnDTask
+createItem taskId group = DnDTask taskId group False
+
+handleDnDUpdate : Int -> DnDTask -> List DnDTask -> Dict String Task -> (List TaskId, Dict String Task)
+handleDnDUpdate dragIndex item dndItems oldTasks =
     let
-        (cancelTopLevel, cancelTasks) =
-            let filtering theList = List.filter (\n -> n /= data.dragId) theList in
-            if data.task.parentId == "-1" then (filtering data.topLevel, data.tasks)
-            else
-                let
-                    doCancelUpdate maybeParent =
-                        case maybeParent of
-                            Just parentTask ->
-                                Just {parentTask | subTasks = filtering parentTask.subTasks}
-                            Nothing -> Nothing
-                in
-                (data.topLevel, Dict.update data.task.parentId doCancelUpdate data.tasks)
-        (oldTopLevel, oldTasks) =
-            if data.dragParent == "-1" then (data.dragOrder, cancelTasks)
-            else
-                let
-                    doOldUpdate maybeParent =
-                        case maybeParent of
-                            Just parentTask -> Just {parentTask | subTasks = data.dragOrder}
-                            Nothing -> Nothing
-                in
-                (cancelTopLevel, Dict.update data.dragParent doOldUpdate cancelTasks)
-        doLastUpdate maybeTask =
-            case maybeTask of
-                Just theTask -> Just {theTask | parentId = data.dragParent}
-                Nothing -> Nothing
-        finalTasks = Dict.update data.dragId doLastUpdate oldTasks
+        filteredItems g i a = if i.group == g then i.id::a else a
+        genTopLevel = List.foldr (filteredItems "-1") [] dndItems
+        genTasks =
+            case Dict.get item.id oldTasks of
+                Just task ->
+                    let
+                        doFirstUpdate maybeTask =
+                            case maybeTask of
+                                Just tmpTask -> Just {tmpTask | parentId = item.group}
+                                Nothing -> Nothing
+                        firstUpdate = Dict.update item.id doFirstUpdate oldTasks
+                        doSecondUpdate maybeTask =
+                            case maybeTask of
+                                Just tmpTask ->
+                                    let
+                                        newSubTasks =
+                                            if task.parentId == item.group then
+                                                List.foldr (filteredItems item.group) [] dndItems
+                                            else
+                                                List.filter (\n -> n /= item.id) tmpTask.subTasks
+                                    in
+                                    Just {tmpTask | subTasks = newSubTasks}
+                                Nothing -> Nothing
+                        secondUpdate =
+                            if task.parentId /= "-1" then
+                                Dict.update task.parentId doSecondUpdate firstUpdate
+                            else firstUpdate
+                        doThirdUpdate maybeTask =
+                            case maybeTask of
+                                Just tmpTask ->
+                                    let newSubTasks = List.filter (\n -> n /= item.id) tmpTask.subTasks in
+                                    Just {tmpTask | subTasks = newSubTasks}
+                                Nothing -> Nothing
+                        thirdUpdate =
+                            if item.group /= "-1" && (item.group /= task.parentId) then
+                                Dict.update item.group doThirdUpdate secondUpdate
+                            else secondUpdate
+                    in
+                    thirdUpdate
+                Nothing -> oldTasks
     in
-    (oldTopLevel, finalTasks)
+    (genTopLevel, genTasks)
 
 -- UPDATE
 
 type Msg
     = NoOp
     | ToggleTask TaskId
-    | DragPrelude Decode.Value
-    --
-    --
-    --
-    | DragStop
+    | DnDMsg DnDList.Groups.Msg
+    | CheckTopLevel
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
@@ -127,37 +168,55 @@ update msg model =
                         Just task -> Just {task | opened = not task.opened}
                         Nothing -> Nothing
                 updatedTasks = Dict.update taskId doOpen model.tasks
-                newModel = {model | tasks = updatedTasks}
+                updatedDnDItems =
+                    case Dict.get taskId updatedTasks of
+                        Just task ->
+                            if task.opened then
+                                List.map (\n -> createItem n taskId) task.subTasks
+                                    |> (\a b -> List.append b a) [DnDTask ("f"++taskId) taskId True]
+                                    |> List.append model.dndItems
+                            else
+                                List.filter (\n -> n.group /= taskId) model.dndItems
+                        Nothing -> model.dndItems
+                newModel = {model | tasks = updatedTasks, dndItems = updatedDnDItems}
             in
             (newModel, Cmd.none)
-        DragPrelude value ->
-            --
+        DnDMsg dndMsg ->
             let
-                --
-                _ = Debug.log "Drag" "Prelude"
-                --
+                (dnd, dndItems) = system.update dndMsg model.dnd model.dndItems
+                (dragRunning, newTopLevel, newTasks) =
+                    case system.info dnd of
+                        Just {dragIndex} ->
+                            case List.drop dragIndex dndItems |> List.head of
+                                Just item ->
+                                    let
+                                        filteredFooters = List.filter (\n -> not n.foot) dndItems
+                                        (genTopLevel, genTasks) =
+                                            handleDnDUpdate dragIndex item filteredFooters model.tasks
+                                    in
+                                    (Just (dragIndex, item), genTopLevel, genTasks)
+                                Nothing -> (Nothing, model.topLevel, model.tasks)
+                        Nothing -> (Nothing, model.topLevel, model.tasks)
             in
-            --
-            --
-            ({model | dragPrelude = True}, Cmd.none)
-            --
-        --
-        --
-        --
-        --
-        DragStop ->
-            --
-            ({model | dragPrelude = False}, Cmd.none)
-            --
+            ( {model
+                | dnd = dnd
+                , dndItems = dndItems
+                , dragRunning = dragRunning
+                , tasks = newTasks
+                , topLevel = newTopLevel
+                }
+            , system.commands model.dnd)
+        CheckTopLevel ->
+            let
+                _ = Debug.log "TOP LEVEL" (Debug.toString model.dndItems)
+            in
+            (model, Cmd.none)
 
 -- SUBS
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    --case model.dragPrelude of
-    --    False -> Sub.none
-    --    True -> BE.onMouseUp (Decode.succeed DragStop)
-    Sub.none
+    system.subscriptions model.dnd
 
 -- VIEW
 
@@ -165,52 +224,82 @@ view : Model -> Browser.Document Msg
 view model =
     { title = "test drag'n'drop"
     , body =
-        [ div []
-            (viewTasks model.tasks model.tmpDragId model.topLevel)
+        [ section [] (viewTasks model model.dndItems "-1")
+        , button [onClick CheckTopLevel] [text "CHECK"]
+        , ghostTask model.dragRunning model.dnd
         ]
     }
 
-viewTasks : Dict TaskId Task -> TaskId -> List TaskId -> List (Html Msg)
-viewTasks tasks dragId taskIds =
-    List.map (viewTask tasks dragId) taskIds
+viewTasks : Model -> List DnDTask -> TaskId -> List (Html Msg)
+viewTasks model dndItems group =
+    let
+        listToShow = List.filter (\n -> n.group == group) dndItems
+        offset = calculateOffset 0 group dndItems
+    in
+    (List.indexedMap (viewTask model dndItems offset) listToShow)
 
-prevDef : msg -> (msg, Bool)
-prevDef msg = (msg, True)
-
-viewTask : Dict TaskId Task -> TaskId -> TaskId -> Html Msg
-viewTask tasks dragId taskId =
-    case Dict.get taskId tasks of
-        Just task ->
-            if taskId == dragId then
-                div
-                    [attribute "style" "border: dotted 1px gray;width:200px;"]
-                    [div [] [text "&amp;"]]
-            else
-                let
-                    taskTitle =
+viewTask : Model -> List DnDTask -> Int -> Int -> DnDTask -> Html Msg
+viewTask model dndItems offset index item =
+    let
+        gIndex = offset + index
+        itemId = "id-"++(String.fromInt gIndex)
+        (dragIn, dragItem) =
+            case model.dragRunning of
+                Just (_, getItem) -> (True, getItem)
+                Nothing -> (False, DnDTask "-1" "-2" False)
+    in
+    if item.foot then
+        div
+            [ id itemId
+            , attribute "style" "height:10px;width:202px;background:blue;"
+            ]
+            []
+    else
+        if item.id == dragItem.id then
+            div
+                [ id itemId
+                , style "background" "gray"
+                , style "height" "20px"
+                , style "width" "202px"
+                ]
+                []
+        else
+            case Dict.get item.id model.tasks of
+                Just task ->
+                    if task.opened then
+                        --
                         div
-                            [ onClick (ToggleTask taskId)
-                            , style "background" "yellow"
-                            ]
-                            [text task.title]
-                in
-                div
-                    (List.append
-                        (if task.opened then [] else [on "mousedown"
-                            (Decode.map (Decode.value DragPrelude))
-                        ])
-                        [attribute "style" "border:solid 1px black;width:200px;"]
-                    )
-                    (taskTitle::(if task.opened then
-                        [div [style "margin" "3px"] 
-                            (if List.isEmpty task.subTasks then
-                                [div
-                                    [attribute "style" "height:10px;background:blue;"]
-                                    []
+                            []
+                            []
+                        --
+                        {-
+                        (taskTitle::(if task.opened then
+                            [] --[div [style "margin" "10px"] (viewTasks tasks task.subTasks)]
+                        else []))
+                        -}
+                        --
+                    else
+                        div
+                            (List.append
+                                [ id itemId
+                                , onDoubleClick (ToggleTask item.id)
+                                , style "background" "yellow"
+                                , style "width" "200px"
+                                , style "height" "20px"
+                                , style "border" "solid 1px black"
                                 ]
-                            else
-                                (viewTasks tasks dragId task.subTasks)
+                                (if dragIn then system.dropEvents gIndex itemId
+                                else system.dragEvents gIndex itemId
+                                )
                             )
-                        ]
-                    else []))
+                            [text task.title]
+                Nothing -> text ""
+
+ghostTask : Maybe (Int, DnDTask) -> DnDList.Groups.Model -> Html Msg
+ghostTask maybe dnd =
+    case maybe of
+        Just _ -> div
+            ( [attribute "style" "background:green;width:202px;height:20px;"]
+            ++ (system.ghostStyles dnd))
+            []
         Nothing -> text ""
