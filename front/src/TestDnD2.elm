@@ -208,7 +208,8 @@ update msg model =
             , system.commands model.dnd)
         CheckTopLevel ->
             let
-                _ = Debug.log "TOP LEVEL" (Debug.toString model.dndItems)
+                _ = Debug.log "TOP LEVEL" (Debug.toString model.topLevel)
+                _ = Debug.log "DICT" (Debug.toString model.tasks)
             in
             (model, Cmd.none)
 
@@ -236,9 +237,9 @@ viewTasks model dndItems group =
         listToShow = List.filter (\n -> n.group == group) dndItems
         offset = calculateOffset 0 group dndItems
     in
-    (List.indexedMap (viewTask model dndItems offset) listToShow)
+    (List.indexedMap (viewTask model dndItems offset) listToShow |> List.concat)
 
-viewTask : Model -> List DnDTask -> Int -> Int -> DnDTask -> Html Msg
+viewTask : Model -> List DnDTask -> Int -> Int -> DnDTask -> List (Html Msg)
 viewTask model dndItems offset index item =
     let
         gIndex = offset + index
@@ -249,51 +250,53 @@ viewTask model dndItems offset index item =
                 Nothing -> (False, DnDTask "-1" "-2" False)
     in
     if item.foot then
-        div
-            [ id itemId
+        [div
+            ([ id itemId
             , attribute "style" "height:10px;width:202px;background:blue;"
-            ]
-            []
+            ]++(if dragIn && item.group /= dragItem.group then system.dropEvents gIndex itemId else []))
+            []]
     else
-        if item.id == dragItem.id then
-            div
+        if dragIn && item.id == dragItem.id then
+            [div
                 [ id itemId
                 , style "background" "gray"
                 , style "height" "20px"
                 , style "width" "202px"
                 ]
-                []
+                []]
         else
             case Dict.get item.id model.tasks of
                 Just task ->
-                    if task.opened then
-                        --
+                    (if dragIn && task.opened then
                         div
+                            ([id itemId, style "height" "2px", style "width" "202px", style "background" "orange"]
+                            ++system.dropEvents gIndex itemId)
                             []
-                            []
-                        --
-                        {-
-                        (taskTitle::(if task.opened then
-                            [] --[div [style "margin" "10px"] (viewTasks tasks task.subTasks)]
-                        else []))
-                        -}
-                        --
-                    else
-                        div
-                            (List.append
-                                [ id itemId
-                                , onDoubleClick (ToggleTask item.id)
-                                , style "background" "yellow"
-                                , style "width" "200px"
-                                , style "height" "20px"
-                                , style "border" "solid 1px black"
-                                ]
-                                (if dragIn then system.dropEvents gIndex itemId
-                                else system.dragEvents gIndex itemId
-                                )
+                    else text "")::[div
+                        (List.append
+                            [ style "width" "200px"
+                            , style "border" "solid 1px black"
+                            , style "margin-top" (if not dragIn then "2px" else "0")
+                            ]
+                            (if dragIn && not task.opened then id itemId::system.dropEvents gIndex itemId
+                            else
+                                if not task.opened then id itemId::system.dragEvents gIndex itemId
+                                else [id itemId]
                             )
-                            [text task.title]
-                Nothing -> text ""
+                        )
+                        (List.append
+                            [div
+                                [ onDoubleClick (ToggleTask item.id)
+                                , style "background" "yellow"
+                                , style "height" "20px"
+                                ]
+                                [text task.title]
+                            ]
+                            (if task.opened then
+                                [div [style "margin" "10px"] (viewTasks model dndItems item.id)]
+                            else [])
+                        )]
+                Nothing -> [text ""]
 
 ghostTask : Maybe (Int, DnDTask) -> DnDList.Groups.Model -> Html Msg
 ghostTask maybe dnd =
