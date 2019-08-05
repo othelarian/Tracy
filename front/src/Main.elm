@@ -22,6 +22,14 @@ import Url
 import Url.Parser as UP
 import Url.Parser.Query as UPQ
 
+
+
+
+import DnDList
+
+
+
+
 -- MAIN
 
 main =
@@ -258,8 +266,7 @@ subscriptions model =
             else Sub.none
         ,
             case model of
-                Project project ->
-                    Sub.map ProjectMsg (Project.dndSystem.subscriptions project.dnd)
+                Project project -> Sub.map ProjectMsg (Project.subscriptions project)
                 _ -> Sub.none
         ]
 

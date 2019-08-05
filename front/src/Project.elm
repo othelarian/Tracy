@@ -1,4 +1,4 @@
-module Project exposing(Model, Msg(..), createNewProject, dndSystem, init, update, view)
+module Project exposing(Model, Msg(..), createNewProject, subscriptions, init, update, view)
 
 import Api exposing (..)
 import Graphics exposing (..)
@@ -75,10 +75,7 @@ init apiToken url projectInfo homeId testShow =
 
 -- DND SYSTEM
 
-type alias DnDTask =
-    { id : TaskId
-    , title : String
-    }
+type alias DnDTask = TaskId
 
 dndConfig : DnDList.Config DnDTask
 dndConfig =
@@ -245,6 +242,7 @@ type Msg
     | AddMoveTask TaskId
     | RemoveMoveTask TaskId
     | ToggleDnDManager
+    | CancelMove
     --
     | MoveTask
     --
@@ -366,19 +364,13 @@ update msg model =
                         doSubUpdate subTaskId oldAccTasks =
                             let
                                 updateSubStatus maybeSubTask =
-                                    case maybeSubTask of
-                                        Just subTask ->
-                                            Just {subTask | status = newStatus, indicators = newIndicators subTask.indicators}
-                                        Nothing -> Nothing
+                                    Maybe.andThen (\t -> Just {t | status = newStatus, indicators = newIndicators t.indicators}) maybeSubTask
                             in
                             Dict.update subTaskId updateSubStatus oldAccTasks
                         subUpdatedTasks = List.foldl doSubUpdate model.base.tasks allSubTaskIds
                         -- update current task
                         doCurrentUpdate maybeCurrentTask =
-                            case maybeCurrentTask of
-                                Just currentTask ->
-                                    Just {currentTask | indicators = newIndicators currentTask.indicators, status = newStatus}
-                                Nothing -> Nothing
+                            Maybe.andThen (\t -> Just {t | indicators = newIndicators t.indicators, status = newStatus}) maybeCurrentTask
                         currentUpdatedTasks = Dict.update taskId doCurrentUpdate subUpdatedTasks
                         -- update parents tasks
                         parentIds = findParentIds currentUpdatedTasks task.parentId []
@@ -393,16 +385,13 @@ update msg model =
                 Nothing -> (model, Cmd.none)
         DnDMsg dndMsg ->
             let (dnd, dndTasks) = dndSystem.update dndMsg model.dnd model.dndTasks in
-            ({model | dnd = dnd, dndTasks = dndTasks}, Cmd.none)
+            ({model | dnd = dnd, dndTasks = dndTasks}, dndSystem.commands model.dnd)
         AddMoveTask taskId ->
             case Dict.get taskId model.base.tasks of
                 Just task ->
                     let
-                        dndTasks = List.append model.dndTasks [DnDTask taskId task.title]
-                        doMoveUpdate maybeTask =
-                            case maybeTask of
-                                Just tmpTask -> Just {tmpTask | moved = True}
-                                Nothing -> Nothing
+                        dndTasks = List.append model.dndTasks [taskId]
+                        doMoveUpdate maybeTask = Maybe.andThen (\t -> Just {t | moved = True}) maybeTask
                         updatedTasks = Dict.update taskId doMoveUpdate model.base.tasks
                         oldBase = model.base
                         newBase = {oldBase | tasks = updatedTasks}
@@ -411,18 +400,23 @@ update msg model =
                 Nothing -> (model, Cmd.none)
         RemoveMoveTask taskId ->
             let
-                dndTasks = List.filter (\n -> n.id /= taskId) model.dndTasks
+                dndTasks = List.filter (\n -> n /= taskId) model.dndTasks
                 dndShow = if List.isEmpty dndTasks then False else model.dndShow
-                doMoveUpdate maybeTask =
-                    case maybeTask of
-                        Just tmpTask -> Just {tmpTask | moved = False}
-                        Nothing -> Nothing
+                doMoveUpdate maybeTask = Maybe.andThen (\t -> Just {t | moved = False}) maybeTask
                 updatedTasks = Dict.update taskId doMoveUpdate model.base.tasks
                 oldBase = model.base
                 newBase = {oldBase | tasks = updatedTasks}
             in
             ({model | dndTasks = dndTasks, dndShow = dndShow, base = newBase}, Cmd.none)
         ToggleDnDManager -> ({model | dndShow = not model.dndShow}, Cmd.none)
+        CancelMove ->
+            let
+                doCancelUpdate maybeTask = Maybe.andThen (\t -> Just {t | moved = False}) maybeTask
+                newTasks = List.foldl (\n a -> Dict.update n doCancelUpdate a) model.base.tasks model.dndTasks
+                oldBase = model.base
+                newBase = {oldBase | tasks = newTasks}
+            in
+            ({model | dndTasks = [], dndShow = False, base = newBase}, Cmd.none)
         MoveTask ->
             --
             --
@@ -448,10 +442,10 @@ update msg model =
                         doParentPurge parentId accTasks =
                             let
                                 updatePurgedParent maybeParentTask =
-                                    case maybeParentTask of
-                                        Just parentTask ->
+                                    Maybe.andThen
+                                        (\t ->
                                             let
-                                                newSubTasks = List.filter (\n -> n /= taskId) parentTask.subTasks
+                                                newSubTasks = List.filter (\n -> n /= taskId) t.subTasks
                                                 newParentIndicators = calculateSubTasksIndicators newSubTasks accTasks
                                                 newParentStatus =
                                                     if newParentIndicators.wip == 0 then
@@ -460,8 +454,8 @@ update msg model =
                                                         else Wip
                                                     else Wip
                                             in
-                                            Just {parentTask | indicators = newParentIndicators, status = newParentStatus, subTasks = newSubTasks}
-                                        Nothing -> Nothing
+                                            Just {t | indicators = newParentIndicators, status = newParentStatus, subTasks = newSubTasks})
+                                        maybeParentTask
                             in
                             Dict.update parentId updatePurgedParent accTasks
                         parentPurgedTasks = List.foldr doParentPurge currentPurgedTasks parentTaskIds
@@ -486,89 +480,90 @@ subscriptions model =
 view : Model -> Html Msg
 view model =
     div [class "core"]
-        [ div [class "zone_status"]
-            (case model.phase of
-                Loading infoFile -> [span [] [text ("Projet : "++infoFile.name)]]
-                Failing error ->
-                    [ span [class "error"] [text "Il y a eu un problème !"]
-                    , button [onClick (Retry error), class "button_topsnap"] [text "Réessayer"]
-                    ]
+        (List.append
+            [ div [class "zone_status"]
+                (case model.phase of
+                    Loading infoFile -> [span [] [text ("Projet : "++infoFile.name)]]
+                    Failing error ->
+                        [ span [class "error"] [text "Il y a eu un problème !"]
+                        , button [onClick (Retry error), class "button_topsnap"] [text "Réessayer"]
+                        ]
+                    Viewing ->
+                        [ span [] [text model.projectInfo.name]
+                        , button [onClick (GoToHome model.apiToken), class "button_topsnap"] [iconClose]
+                        , button [onClick AskEdit, class "button_topsnap"] [iconEdit]
+                        ]
+                    Editing -> [span [] [text model.projectInfo.name]]
+                    Saving _ -> [span [] [text "Mise à jour du projet"]]
+                )
+            , (case model.phase of
                 Viewing ->
-                    [ span [] [text model.projectInfo.name]
-                    , button [onClick (GoToHome model.apiToken), class "button_topsnap"] [iconClose]
-                    , button [onClick AskEdit, class "button_topsnap"] [iconEdit]
-                    ]
-                Editing -> [span [] [text model.projectInfo.name]]
-                Saving _ -> [span [] [text "Mise à jour du projet"]]
-            )
-        , (case model.phase of
-            Viewing ->
-                div [class "project_tracker indicators_tracker"] (List.append
-                    (viewIndicatorsTracker model.projectInfo.indicators "ce projet")
-                    [ button [class "button_bottomsnap", onClick (AddTask "-1")] [iconAdd]
-                    ,
-                        if model.tmpWaitSave then button [class "button_bottomsnap", onClick SaveEdit] [iconValid]
-                        else Html.nothing
-                    , hr [style "clear" "both"] []
-                    ])
-            _ -> Html.nothing
-            )
-        , (case model.phase of
-            Loading _ -> div [class "waiter"] [text "Chargement du projet en cours, veuillez patienter"]
-            Failing error -> div [class "error"] [text error.info]
-            Viewing->
-                --
-                --
-                div []
-                    [ (section [class "project_desc"] [
-                        (if (String.isEmpty (String.trim model.base.desc)) then text "(Description absente)"
-                        else Markdown.toHtml [] model.base.desc)])
-                    , hr [] []
+                    div [class "project_tracker indicators_tracker"] (List.append
+                        (viewIndicatorsTracker model.projectInfo.indicators "ce projet")
+                        [ button [class "button_bottomsnap", onClick (AddTask "-1")] [iconAdd]
+                        ,
+                            if model.tmpWaitSave then button [class "button_bottomsnap", onClick SaveEdit] [iconValid]
+                            else Html.nothing
+                        , hr [style "clear" "both"] []
+                        ])
+                _ -> Html.nothing
+                )
+            , (case model.phase of
+                Loading _ -> div [class "waiter"] [text "Chargement du projet en cours, veuillez patienter"]
+                Failing error -> div [class "error"] [text error.info]
+                Viewing->
                     --
                     --
-                    , section [] (viewTasks model.base.tasks model.base.topLevel)
-                    --
-                    --
-                    ]
-                --
-                --
-                --
-            Editing ->
-                let previewText = if model.tmpPreview then "Édition" else "Preview" in
-                div []
-                    [ p []
-                        [ label [for "project_name"] [text "Nom : "]
-                        , input
-                            [ id "project_name"
-                            , value model.tmpName
-                            , onInput UpdateEditName
-                            , maxlength 20
-                            , size 23
-                            ] []
+                    div []
+                        [ (section [class "project_desc"] [
+                            (if (String.isEmpty (String.trim model.base.desc)) then text "(Description absente)"
+                            else Markdown.toHtml [] model.base.desc)])
+                        , hr [] []
+                        --
+                        --
+                        , section [] (viewTasks model.base.tasks model.base.topLevel)
+                        --
+                        --
                         ]
-                    , p []
-                        [ label [for "project_desc"] [text "Description :"]
-                        , button [onClick UpdateEditPreview, class "button"] [text previewText]
+                    --
+                    --
+                    --
+                Editing ->
+                    let previewText = if model.tmpPreview then "Édition" else "Preview" in
+                    div []
+                        [ p []
+                            [ label [for "project_name"] [text "Nom : "]
+                            , input
+                                [ id "project_name"
+                                , value model.tmpName
+                                , onInput UpdateEditName
+                                , maxlength 20
+                                , size 23
+                                ] []
+                            ]
+                        , p []
+                            [ label [for "project_desc"] [text "Description :"]
+                            , button [onClick UpdateEditPreview, class "button"] [text previewText]
+                            ]
+                        ,
+                            (if model.tmpPreview then Markdown.toHtml [] model.tmpDesc
+                            else textarea [id "project_desc", onInput UpdateEditDesc, rows 11] [text model.tmpDesc])
+                        , p [class "centered"]
+                            [ button [onClick CancelEdit, class "button_round"] [iconClose]
+                            , button [onClick SaveEdit, class "button_round"] [iconValid]
+                            ]
                         ]
-                    ,
-                        (if model.tmpPreview then Markdown.toHtml [] model.tmpDesc
-                        else textarea [id "project_desc", onInput UpdateEditDesc, rows 11] [text model.tmpDesc])
-                    , p [class "centered"]
-                        [ button [onClick CancelEdit, class "button_round"] [iconClose]
-                        , button [onClick SaveEdit, class "button_round"] [iconValid]
-                        ]
-                    ]
-            Saving step ->
-                div [class "waiter"] [
-                    text (case step of
-                        1 -> "Récupération des informations ..."
-                        2 -> "Sauvegarde dans la racine ..."
-                        3 -> "Sauvegarde du fichier projet ..."
-                        _ -> ""
-                    )]
+                Saving step ->
+                    div [class "waiter"] [
+                        text (case step of
+                            1 -> "Récupération des informations ..."
+                            2 -> "Sauvegarde dans la racine ..."
+                            3 -> "Sauvegarde du fichier projet ..."
+                            _ -> ""
+                        )]
+            )]
+            (if List.isEmpty model.dndTasks then [Html.nothing] else viewDnDManager model)
         )
-        , (if List.isEmpty model.dndTasks then Html.nothing else viewDnDManager model)
-        ]
 
 viewIndicatorsTracker : ProjectIndicators -> String -> List (Html Msg)
 viewIndicatorsTracker indicators endSentence =
@@ -702,7 +697,7 @@ viewTask tasks taskId =
                 )
         Nothing -> Html.nothing    
 
-viewDnDManager : Model -> Html Msg
+viewDnDManager : Model -> List (Html Msg)
 viewDnDManager model =
     let
         managerToggle = button
@@ -712,71 +707,44 @@ viewDnDManager model =
             , style "right" (if model.dndShow then "306px" else "0")
             ]
             [if model.dndShow then iconClose else iconMove]
+        managerCancel = button
+            [ class "button_rightsnap"
+            , onClick CancelMove
+            , style "top" "130px"
+            , style "right" (if model.dndShow then "306" else "0")
+            ]
+            [iconClose]
     in
-    if model.dndShow then
-        let mInfo = dndSystem.info model.dnd
-            --
-            --
-            _ = Debug.log "DND ->" (Debug.toString model.dnd)
-            _ = Debug.log "DND INFO ->" (Debug.toString mInfo)
-            --
-        in
-        div
-            [class "project_dnd_manager"]
-            (managerToggle
-            ::(viewDnDGhost model.dnd model.dndTasks)
-            ::(List.indexedMap (viewDnDTask mInfo) model.dndTasks)
-            )
-    else managerToggle
+    managerToggle::managerCancel
+    ::(if model.dndShow then
+        div [class "project_dnd_manager"]
+            (List.indexedMap (viewDnDTask (dndSystem.info model.dnd) model.base.tasks) model.dndTasks)
+        else Html.nothing
+    )::[]
 
-viewDnDTask : Maybe DnDList.Info -> Int -> DnDTask -> Html Msg
-viewDnDTask mInfo index dndTask =
-    let dndId = "id"++dndTask.id
-        --
-        --
-        --_ = Debug.log "DND INFO ->" (Debug.toString mInfo)
-        --
+viewDnDTask : Maybe DnDList.Info -> Dict TaskId ProjectTask -> Int -> DnDTask -> Html Msg
+viewDnDTask mInfo tasks index dndTask =
+    let
+        dndId = "id-"++dndTask
+        taskTitle = case Dict.get dndTask tasks of
+            Just {title} -> title
+            Nothing -> ""
     in
     case mInfo of
         Just {dragIndex} ->
-            let
-                --
-                _ = Debug.log "DRAG" "POWA"
-                --
-            in
             if dragIndex /= index then
                 div
                     ([id dndId, class "task_line"]++dndSystem.dropEvents index dndId)
-                    [div [class "project_dnd_taskbar dnd_color"] [text dndTask.title]]
+                    [div [class "project_dnd_taskbar dnd_color"] [text taskTitle]]
             else
-                div [class "task_line round_box dnd_color"] []
+                div [class "task_line round_box dnd_color", style "width" "260px"] []
         Nothing ->
-            let
-                --
-                --
-                _ = Debug.log "NOTHING" "TO DRAG"
-                --
-            in
-            
             div
                 [id dndId, class "task_line"]
-                [ div
-                    (class "project_dnd_taskbar dnd_color"::(dndSystem.dragEvents index dndId))
-                    [text dndTask.title]
+                [ span
+                    (class "project_dnd_taskbar dnd_color"::dndSystem.dragEvents index dndId)
+                    [text taskTitle]
                 , button
-                    [onClick (RemoveMoveTask dndTask.id), class "project_dnd_button_round"]
+                    [onClick (RemoveMoveTask dndTask), class "project_dnd_button_round"]
                     [iconClose]
                 ]
-
-viewDnDGhost : DnDList.Model -> List DnDTask -> Html Msg
-viewDnDGhost dnd dndTasks =
-    let
-        maybeDragItem = dndSystem.info dnd
-            |> Maybe.andThen (\{dragIndex} -> dndTasks |> List.drop dragIndex |> List.head)
-    in
-    case maybeDragItem of
-        Just dndTask ->
-            Html.div
-                ([class "project_dnd_taskbar"]++(dndSystem.ghostStyles dnd))
-                [Html.nothing]
-        Nothing -> Html.nothing
