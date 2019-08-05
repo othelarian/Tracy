@@ -1,4 +1,4 @@
-module Project exposing(Model, Msg(..), createNewProject, init, update, view)
+module Project exposing(Model, Msg(..), createNewProject, dndSystem, init, update, view)
 
 import Api exposing (..)
 import Graphics exposing (..)
@@ -6,9 +6,10 @@ import JsonData exposing (..)
 
 import Array exposing (Array)
 import Dict exposing (Dict)
-import Html exposing (Html, button, div, hr, input, label, option, p, select, span, text, textarea)
+import DnDList
+import Html exposing (..)
 import Html.Attributes exposing (..)
-import Html.Events exposing (onClick, onInput, stopPropagationOn)
+import Html.Events exposing (onClick, onInput)
 import Html.Extra as Html
 import Http
 import Json.Decode as JD
@@ -28,14 +29,10 @@ type alias ProjectError =
 
 type alias Step = Int
 
-type DragStatus
-    = Inactive
-    | Active String
-
 type ProjectPhase
     = Loading ProjectInfo
     | Failing ProjectError
-    | Viewing DragStatus
+    | Viewing
     | Editing
     | Saving Step
 
@@ -48,6 +45,9 @@ type alias Model =
     , tmpDesc : String
     , tmpPreview : Bool
     , tmpWaitSave : Bool
+    , dnd : DnDList.Model
+    , dndTasks : List DnDTask
+    , dndShow : Bool
     , phase : ProjectPhase
     , base : ProjectBase
     , testValue : String
@@ -65,14 +65,35 @@ init apiToken url projectInfo homeId testShow =
         ""
         False
         False
+        dndSystem.model
+        []
+        False
         (Loading projectInfo)
         (ProjectBase "" 0 Dict.empty [])
         ""
         testShow
 
+-- DND SYSTEM
+
+type alias DnDTask =
+    { id : TaskId
+    , title : String
+    }
+
+dndConfig : DnDList.Config DnDTask
+dndConfig =
+    { beforeUpdate = \_ _ list -> list
+    , movement = DnDList.Free
+    , listen = DnDList.OnDrag
+    , operation = DnDList.Rotate
+    }
+
+dndSystem : DnDList.System DnDTask Msg
+dndSystem = DnDList.create dndConfig DnDMsg
+
 -- HANDLERS
 
-calculateParentUpdate : String -> Dict String ProjectTask -> Dict String ProjectTask
+calculateParentUpdate : TaskId -> Dict TaskId ProjectTask -> Dict TaskId ProjectTask
 calculateParentUpdate parentId accTasks =
     let
         updateParentIndicators maybeParentTask =
@@ -92,7 +113,7 @@ calculateParentUpdate parentId accTasks =
     in
     Dict.update parentId updateParentIndicators accTasks
 
-calculateSubTasksIndicators : List String -> Dict String ProjectTask -> ProjectIndicators
+calculateSubTasksIndicators : List TaskId -> Dict TaskId ProjectTask -> ProjectIndicators
 calculateSubTasksIndicators subTaskIds calcTasks =
     let
         getSubTaskIndicators subTaskId accIndicators =
@@ -111,13 +132,13 @@ createNewProject : String -> ProjectBase
 createNewProject desc =
     ProjectBase desc 0 Dict.empty []
 
-findParentIds : Dict String ProjectTask -> String -> List String -> List String
+findParentIds : Dict TaskId ProjectTask -> TaskId -> List TaskId -> List TaskId
 findParentIds tasks parentId acc =
     case Dict.get parentId tasks of
         Just foundTask -> findParentIds tasks foundTask.parentId (parentId::acc)
         Nothing -> acc
 
-findSubTaskIds : Dict String ProjectTask -> String -> List String -> List String -> List String
+findSubTaskIds : Dict TaskId ProjectTask -> TaskId -> List TaskId -> List TaskId -> List TaskId
 findSubTaskIds tasks subTaskId future acc =
     let
         (newFuture, newAcc) =
@@ -209,23 +230,27 @@ type Msg
     | ValidStep1Edit (Result Http.Error (List ProjectInfo))
     | ValidStep2Edit (Result Http.Error String)
     | ValidStep3Edit (Result Http.Error String)
-    | AddTask String
-    | OpenTask String
-    | CancelTask String
-    | ValidTask String
-    | EditTask String
-    | UpdateTaskTitle String String
-    | UpdateTaskDesc String String
-    | UpdateTaskPreview String
-    | UpdateTaskStatus String String
+    | AddTask TaskId
+    | OpenTask TaskId
+    | CancelTask TaskId
+    | ValidTask TaskId
+    | EditTask TaskId
+    | UpdateTaskTitle TaskId String
+    | UpdateTaskDesc TaskId String
+    | UpdateTaskPreview TaskId
+    | UpdateTaskStatus TaskId String
     --
-    | StartDrag String
+    | DnDMsg DnDList.Msg
+    --
+    | AddMoveTask TaskId
+    | RemoveMoveTask TaskId
+    | ToggleDnDManager
     --
     | MoveTask
     --
     --
-    | RemoveTask String
-    | DeleteTask String
+    | RemoveTask TaskId
+    | DeleteTask TaskId
     | GoToHome ApiToken
 
 update : Msg -> Model -> (Model, Cmd Msg)
@@ -234,7 +259,7 @@ update msg model =
         LoadProject infoFile result ->
             case result of
                 Ok projectBase ->
-                    ({model | phase = Viewing Inactive, base = projectBase , tmpDesc = projectBase.desc}, Cmd.none)
+                    ({model | phase = Viewing, base = projectBase , tmpDesc = projectBase.desc}, Cmd.none)
                 Err error -> handleError model model.phase error
         Retry error ->
             case error.phase of
@@ -256,7 +281,7 @@ update msg model =
                 _ -> (model, Cmd.none)
         AskEdit -> ({model | phase = Editing}, Cmd.none)
         CancelEdit ->
-            ({model | phase = Viewing Inactive, tmpName = model.projectInfo.name, tmpDesc = model.base.desc}, Cmd.none)
+            ({model | phase = Viewing, tmpName = model.projectInfo.name, tmpDesc = model.base.desc}, Cmd.none)
         UpdateEditName value -> ({model | tmpName = value}, Cmd.none)
         UpdateEditDesc value -> ({model | tmpDesc = value}, Cmd.none)
         UpdateEditPreview -> ({model | tmpPreview = not model.tmpPreview}, Cmd.none)
@@ -273,7 +298,7 @@ update msg model =
                 Err error -> handleError model (Saving 1) error
         ValidStep3Edit result ->
             case result of
-                Ok _ -> ({model | phase = Viewing Inactive, tmpWaitSave = False} , Cmd.none)
+                Ok _ -> ({model | phase = Viewing, tmpWaitSave = False} , Cmd.none)
                 Err error -> handleError model (Saving 3) error
         AddTask parentId ->
             let
@@ -366,16 +391,38 @@ update msg model =
                     in
                     ({model | projectInfo = finalProjectInfo, base = {oldBase | tasks = parentUpdatedTasks}, tmpWaitSave = True}, Cmd.none)
                 Nothing -> (model, Cmd.none)
-        StartDrag taskId ->
-            --
+        DnDMsg dndMsg ->
+            let (dnd, dndTasks) = dndSystem.update dndMsg model.dnd model.dndTasks in
+            ({model | dnd = dnd, dndTasks = dndTasks}, Cmd.none)
+        AddMoveTask taskId ->
+            case Dict.get taskId model.base.tasks of
+                Just task ->
+                    let
+                        dndTasks = List.append model.dndTasks [DnDTask taskId task.title]
+                        doMoveUpdate maybeTask =
+                            case maybeTask of
+                                Just tmpTask -> Just {tmpTask | moved = True}
+                                Nothing -> Nothing
+                        updatedTasks = Dict.update taskId doMoveUpdate model.base.tasks
+                        oldBase = model.base
+                        newBase = {oldBase | tasks = updatedTasks}
+                    in
+                    ({model | dndTasks = dndTasks, base = newBase}, Cmd.none)
+                Nothing -> (model, Cmd.none)
+        RemoveMoveTask taskId ->
             let
-                _ = Debug.log "TODO" ("drag en cours, tâche "++taskId)
+                dndTasks = List.filter (\n -> n.id /= taskId) model.dndTasks
+                dndShow = if List.isEmpty dndTasks then False else model.dndShow
+                doMoveUpdate maybeTask =
+                    case maybeTask of
+                        Just tmpTask -> Just {tmpTask | moved = False}
+                        Nothing -> Nothing
+                updatedTasks = Dict.update taskId doMoveUpdate model.base.tasks
+                oldBase = model.base
+                newBase = {oldBase | tasks = updatedTasks}
             in
-            --
-            --
-            (model, Cmd.none)
-            --
-            --
+            ({model | dndTasks = dndTasks, dndShow = dndShow, base = newBase}, Cmd.none)
+        ToggleDnDManager -> ({model | dndShow = not model.dndShow}, Cmd.none)
         MoveTask ->
             --
             --
@@ -428,6 +475,12 @@ update msg model =
                 Nothing -> (model, Cmd.none)
         GoToHome _ -> (model, Cmd.none)
 
+-- SUBSCRIPTIONS
+
+subscriptions : Model -> Sub Msg
+subscriptions model =
+    dndSystem.subscriptions model.dnd
+
 -- VIEW
 
 view : Model -> Html Msg
@@ -440,7 +493,7 @@ view model =
                     [ span [class "error"] [text "Il y a eu un problème !"]
                     , button [onClick (Retry error), class "button_topsnap"] [text "Réessayer"]
                     ]
-                Viewing _ ->
+                Viewing ->
                     [ span [] [text model.projectInfo.name]
                     , button [onClick (GoToHome model.apiToken), class "button_topsnap"] [iconClose]
                     , button [onClick AskEdit, class "button_topsnap"] [iconEdit]
@@ -449,7 +502,7 @@ view model =
                 Saving _ -> [span [] [text "Mise à jour du projet"]]
             )
         , (case model.phase of
-            Viewing _ ->
+            Viewing ->
                 div [class "project_tracker indicators_tracker"] (List.append
                     (viewIndicatorsTracker model.projectInfo.indicators "ce projet")
                     [ button [class "button_bottomsnap", onClick (AddTask "-1")] [iconAdd]
@@ -463,23 +516,23 @@ view model =
         , (case model.phase of
             Loading _ -> div [class "waiter"] [text "Chargement du projet en cours, veuillez patienter"]
             Failing error -> div [class "error"] [text error.info]
-            Viewing _->
-                --
-                --
-                let
-                    --
-                    _ = Debug.log "TODO" "ajout du DnD ici"
-                    --
-                in
+            Viewing->
                 --
                 --
                 div []
-                    [ (div [class "project_desc"] [
+                    [ (section [class "project_desc"] [
                         (if (String.isEmpty (String.trim model.base.desc)) then text "(Description absente)"
                         else Markdown.toHtml [] model.base.desc)])
                     , hr [] []
-                    , div [] (viewTasks model.base.tasks model.base.topLevel)
+                    --
+                    --
+                    , section [] (viewTasks model.base.tasks model.base.topLevel)
+                    --
+                    --
                     ]
+                --
+                --
+                --
             Editing ->
                 let previewText = if model.tmpPreview then "Édition" else "Preview" in
                 div []
@@ -514,6 +567,7 @@ view model =
                         _ -> ""
                     )]
         )
+        , (if List.isEmpty model.dndTasks then Html.nothing else viewDnDManager model)
         ]
 
 viewIndicatorsTracker : ProjectIndicators -> String -> List (Html Msg)
@@ -575,22 +629,17 @@ viewTask tasks taskId =
                         )
                     ModeView ->
                         let
-                            isDraggable = case task.opened of
-                                True -> []
-                                False ->
-                                    --
-                                    let _ = Debug.log "TODO" "rendre draggable, normalement c'est ici" in
-                                    --
-                                    [draggable "true", dropzone "true"]
-                                    --
-                            --
+                            moveAttrs =
+                                if task.moved then [onClick (RemoveMoveTask taskId), class "project_dnd_button_round"]
+                                else [onClick (AddMoveTask taskId), class "button_round"]
                         in
                         --
-                        ( (class taskClasses)::(onClick (OpenTask taskId))::(isDraggable)
+                        ( (class taskClasses)::[onClick (OpenTask taskId)]
                         --
                         ,
                             [ button [onClick (RemoveTask taskId), class "button_round"] [iconClose]
                             , button [onClick (EditTask taskId), class "button_round"] [iconEdit]
+                            , button moveAttrs [iconMove]
                             , statusSelector
                             ]
                         , case task.opened of
@@ -640,7 +689,11 @@ viewTask tasks taskId =
                                     ] []
                             _ ->
                                 let
-                                    sub = if task.indicators.wait > 0 || task.indicators.wip > 0 || task.indicators.done > 0 then "↡" else ""
+                                    sub =
+                                        if task.indicators.wait > 0
+                                        || task.indicators.wip > 0
+                                        || task.indicators.done > 0
+                                        then " ↡ " else ""
                                 in
                                 text (sub++task.title)
                         ])::buttons)
@@ -648,3 +701,82 @@ viewTask tasks taskId =
                 content
                 )
         Nothing -> Html.nothing    
+
+viewDnDManager : Model -> Html Msg
+viewDnDManager model =
+    let
+        managerToggle = button
+            [ class "button_rightsnap"
+            , onClick ToggleDnDManager
+            , style "top" "100px"
+            , style "right" (if model.dndShow then "306px" else "0")
+            ]
+            [if model.dndShow then iconClose else iconMove]
+    in
+    if model.dndShow then
+        let mInfo = dndSystem.info model.dnd
+            --
+            --
+            _ = Debug.log "DND ->" (Debug.toString model.dnd)
+            _ = Debug.log "DND INFO ->" (Debug.toString mInfo)
+            --
+        in
+        div
+            [class "project_dnd_manager"]
+            (managerToggle
+            ::(viewDnDGhost model.dnd model.dndTasks)
+            ::(List.indexedMap (viewDnDTask mInfo) model.dndTasks)
+            )
+    else managerToggle
+
+viewDnDTask : Maybe DnDList.Info -> Int -> DnDTask -> Html Msg
+viewDnDTask mInfo index dndTask =
+    let dndId = "id"++dndTask.id
+        --
+        --
+        --_ = Debug.log "DND INFO ->" (Debug.toString mInfo)
+        --
+    in
+    case mInfo of
+        Just {dragIndex} ->
+            let
+                --
+                _ = Debug.log "DRAG" "POWA"
+                --
+            in
+            if dragIndex /= index then
+                div
+                    ([id dndId, class "task_line"]++dndSystem.dropEvents index dndId)
+                    [div [class "project_dnd_taskbar dnd_color"] [text dndTask.title]]
+            else
+                div [class "task_line round_box dnd_color"] []
+        Nothing ->
+            let
+                --
+                --
+                _ = Debug.log "NOTHING" "TO DRAG"
+                --
+            in
+            
+            div
+                [id dndId, class "task_line"]
+                [ div
+                    (class "project_dnd_taskbar dnd_color"::(dndSystem.dragEvents index dndId))
+                    [text dndTask.title]
+                , button
+                    [onClick (RemoveMoveTask dndTask.id), class "project_dnd_button_round"]
+                    [iconClose]
+                ]
+
+viewDnDGhost : DnDList.Model -> List DnDTask -> Html Msg
+viewDnDGhost dnd dndTasks =
+    let
+        maybeDragItem = dndSystem.info dnd
+            |> Maybe.andThen (\{dragIndex} -> dndTasks |> List.drop dragIndex |> List.head)
+    in
+    case maybeDragItem of
+        Just dndTask ->
+            Html.div
+                ([class "project_dnd_taskbar"]++(dndSystem.ghostStyles dnd))
+                [Html.nothing]
+        Nothing -> Html.nothing

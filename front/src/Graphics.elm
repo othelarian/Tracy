@@ -39,6 +39,12 @@ iconExit =
         , polyline [class "iconsBlock", points "6,5 6,7 10,7 10,8 13,6 10,4 10,5"] []
         ]
 
+iconMove : Svg msg
+iconMove =
+    svg
+        [width "14", height "14"]
+        [polyline [class "iconsLine", points "7,1 13,7 7,13 1,7 7,1"] []]
+
 iconValid : Svg msg
 iconValid =
     svg

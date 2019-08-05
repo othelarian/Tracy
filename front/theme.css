@@ -64,6 +64,30 @@ textarea {
     stroke: #0099ff;
 }
 
+.button_rightsnap {
+    border: solid 1px #ff7700;
+    border-radius: 10px 0 0 10px;
+    margin: auto;
+    margin-right: 0;
+    background: #ff7700;
+    color: white;
+    padding: 3px;
+    position: fixed;
+    width: 26px;
+    height: 22px;
+}
+.button_rightsnap:hover {
+    background: white;
+    color: #ff7700;
+}
+.button_rightsnap:hover > svg > .iconsBlock {
+    stroke: #ff7700;
+    fill: #ff7700;
+}
+.button_rightsnap:hover > svg > .iconsLine {
+    stroke: #ff7700;
+}
+
 .button_topsnap {
     border: solid 1px #0099ff;
     border-radius: 0 0 10px 10px;
@@ -93,6 +117,7 @@ textarea {
     margin-bottom: 120px;
     width: 80%;
     min-width: 550px;
+    max-width: 900px;
     position: relative;
     padding-top: 50px;
 }
@@ -194,6 +219,54 @@ div.error {
 
 .project_desc { margin-top: 40px; }
 
+.dnd_color {
+    background: #ff7700;
+    color: white;
+    border: solid 1px #ff7700;
+}
+
+.project_dnd_manager {
+    position: fixed;
+    top: 100px;
+    right: 0;
+    width: 300px;
+    border-radius: 5px 0 0 0;
+    border: solid 1px #ff7700;
+    background: white;
+    padding: 2px;
+}
+
+.project_dnd_taskbar {
+    height: 20px;
+    border-radius: 10px;
+    padding-left: 5px;
+    margin: 0 auto;
+    width: 260px;
+    float: left;
+}
+
+.project_dnd_button_round {
+    border: solid 1px #ff7700;
+    border-radius: 10px;
+    background: #ff7700;
+    color: white;
+    padding: 3px;
+    margin: auto 5px;
+    width: 22px;
+    height: 22px;
+}
+.project_dnd_button_round:hover {
+    color: #ff7700;
+    background: white;
+}
+.project_dnd_button_round:hover > svg > .iconsBlock {
+    stroke: #ff7700;
+    fill: #ff7700;
+}
+.project_dnd_button_round:hover > svg > .iconsLine {
+    stroke: #ff7700;
+}
+
 .project_end {
     margin: 10px;
     font-size: 1.1rem;
@@ -207,6 +280,7 @@ div.error {
     padding-bottom: 10px;
     background: white;
     width: 80%;
+    max-width: 900px;
     margin: auto;
 }
 

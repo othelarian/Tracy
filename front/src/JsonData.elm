@@ -9,11 +9,13 @@ import Json.Encode as JE
 
 -- TYPES
 
+type alias TaskId = String
+
 type alias ProjectBase =
     { desc : String
     , nextId : Int
-    , tasks : Dict String ProjectTask
-    , topLevel : List String
+    , tasks : Dict TaskId ProjectTask
+    , topLevel : List TaskId
     }
 
 type alias ProjectInfo =
@@ -40,24 +42,26 @@ type alias ProjectIndicators =
 
 type alias ProjectTask =
     { opened : Bool
+    , moved : Bool
     , mode : ProjectTaskMode
     , tmpTitle : String
     , tmpDesc : String
     , tmpPreview : Bool
     , title : String
-    , parentId : String
+    , parentId : TaskId
     , status : ProjectTaskStatus
     , desc : String
     , indicators : ProjectIndicators
-    , subTasks : List String
+    , subTasks : List TaskId
     }
 
 -- GENERATION
 
-generateTask : Bool -> String -> String -> ProjectTask
+generateTask : Bool -> String -> TaskId -> ProjectTask
 generateTask init title parentId =
     ProjectTask
         (if init then True else False)
+        False
         (if init then ModeEdit else ModeView)
         title
         ""
@@ -98,7 +102,7 @@ decodeProjectTask =
                 "Wip" -> Wip
                 _ -> Closed
     in
-    JD.map6 (ProjectTask False ModeView "" "" False)
+    JD.map6 (ProjectTask False False ModeView "" "" False)
         (field "title" string)
         (field "parentId" string)
         (field "status" (JD.map getProjectTaskStatus string))

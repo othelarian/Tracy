@@ -256,6 +256,11 @@ subscriptions model =
                     (toFloat ((genModel.apiToken.expiresIn - 10) * 1000))
                     AskRefresh
             else Sub.none
+        ,
+            case model of
+                Project project ->
+                    Sub.map ProjectMsg (Project.dndSystem.subscriptions project.dnd)
+                _ -> Sub.none
         ]
 
 -- VIEW
