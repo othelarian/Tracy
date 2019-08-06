@@ -230,6 +230,7 @@ div.error {
     top: 100px;
     right: 0;
     width: 300px;
+    min-height: 50px;
     border-radius: 0 0 0 5px;
     border: solid 1px #ff7700;
     background: white;
@@ -251,7 +252,7 @@ div.error {
     background: #ff7700;
     color: white;
     padding: 3px;
-    margin: auto 5px;
+    margin: auto 0 auto 5px;
     width: 22px;
     height: 22px;
 }
@@ -287,9 +288,11 @@ div.error {
 /* TASKS CLASSES */
 
 .task_line {
-    height: 20px;
-    margin: 5px auto;
+    height: 22px;
+    /*margin: 5px auto;*/
 }
+
+.with_margins { margin: 5px auto; }
 
 .task_line > button { float: right; }
 
@@ -312,6 +315,27 @@ div.error {
 .task_desc {
     max-height: 300px;
     overflow: auto;
+}
+
+.task_space {
+    margin: 0 auto;
+    height: 7px;
+    width: 98%;
+    background: none;
+}
+
+.task_placeholder {
+    margin: 0 auto;
+    height: 7px;
+    width: 98%;
+    background: none;
+    transition: height 1s;
+}
+.task_placeholder:hover {
+    height: 22px;
+    margin: 2px 0;
+    border-radius: 5px;
+    border: dashed 1px #0099ff;
 }
 
 .task_select {
@@ -387,7 +411,7 @@ div.error {
     }
 }
 
-@media only screen and (max-width: 710px) {
+@media only screen and (max-width: 720px) {
     .core {
         width: 95%;
     }

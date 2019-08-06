@@ -22,14 +22,6 @@ import Url
 import Url.Parser as UP
 import Url.Parser.Query as UPQ
 
-
-
-
-import DnDList
-
-
-
-
 -- MAIN
 
 main =

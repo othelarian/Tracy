@@ -236,17 +236,12 @@ type Msg
     | UpdateTaskDesc TaskId String
     | UpdateTaskPreview TaskId
     | UpdateTaskStatus TaskId String
-    --
     | DnDMsg DnDList.Msg
-    --
     | AddMoveTask TaskId
     | RemoveMoveTask TaskId
     | ToggleDnDManager
     | CancelMove
-    --
-    | MoveTask
-    --
-    --
+    | MoveTask TaskId TaskId
     | RemoveTask TaskId
     | DeleteTask TaskId
     | GoToHome ApiToken
@@ -417,13 +412,59 @@ update msg model =
                 newBase = {oldBase | tasks = newTasks}
             in
             ({model | dndTasks = [], dndShow = False, base = newBase}, Cmd.none)
-        MoveTask ->
-            --
-            --
-            let _ = Debug.log "TODO" "tout reste à faire dans cette partie" in
-            --
-            (model, Cmd.none)
-            --
+        MoveTask parentId beforeId ->
+            let
+                -- deconnect all the moving tasks from their old parents
+                doSeparate taskId (accTopLevel, accTasks) =
+                    case Dict.get taskId accTasks of
+                        Just task ->
+                            if task.parentId == "-1" then (List.filter (\n -> n /= taskId) accTopLevel, accTasks)
+                            else
+                                let
+                                    parentTaskIds = findParentIds accTasks task.parentId []
+                                    doUpdateParent maybeParentTask =
+                                        Maybe.andThen (\t -> Just {t | subTasks = List.filter (\n -> n /= taskId) t.subTasks}) maybeParentTask
+                                    firstParentUpdate = Dict.update task.parentId doUpdateParent accTasks
+                                    updatedParentTasks = List.foldr calculateParentUpdate firstParentUpdate parentTaskIds
+                                in
+                                (accTopLevel, updatedParentTasks)
+                        Nothing -> (accTopLevel, accTasks)
+                (updatedTopLevel, updatedTasks) = List.foldl doSeparate (model.base.topLevel, model.base.tasks) model.dndTasks
+                -- reconnect the moving tasks to their new parent
+                recurOldList beforeList afterList =
+                    case afterList of
+                        x::xs ->
+                            if x == beforeId then List.concat [beforeList, model.dndTasks, afterList]
+                            else recurOldList (List.append beforeList [x]) xs
+                        [] -> List.append beforeList model.dndTasks
+                updateOldList : List String -> List String
+                updateOldList oldList =
+                    if beforeId == "foot" then List.append oldList model.dndTasks
+                    else recurOldList [] oldList
+                (reconnectedTopLevel, reconnectedTasks) =
+                    if parentId == "-1" then (updateOldList updatedTopLevel, updatedTasks)
+                    else
+                        let
+                            parentTaskIds = findParentIds updatedTasks parentId []
+                            doUpdateParent maybeParentTask =
+                                Maybe.andThen (\t -> Just {t | subTasks = updateOldList t.subTasks}) maybeParentTask
+                            firstParentUpdate = Dict.update parentId doUpdateParent updatedTasks
+                            updatedParentTasks = List.foldr calculateParentUpdate firstParentUpdate parentTaskIds
+                        in
+                        (updatedTopLevel, updatedParentTasks)
+                -- update the moved tasks
+                doMovedUpdate maybeTask =
+                    Maybe.andThen (\t -> Just {t | moved = False, parentId = parentId}) maybeTask
+                finalTasks = List.foldl (\n a -> Dict.update n doMovedUpdate a) reconnectedTasks model.dndTasks
+                -- update the model
+                oldBase = model.base
+                oldProjectInfo = model.projectInfo
+                newBase = {oldBase | tasks = finalTasks, topLevel = reconnectedTopLevel}
+                newTopIndicators = calculateSubTasksIndicators reconnectedTopLevel finalTasks
+                newProjectInfo = {oldProjectInfo | indicators = newTopIndicators}
+                newModel = {model | base = newBase, projectInfo = newProjectInfo, dndTasks = [], dndShow = False, tmpWaitSave = True}
+            in
+            (newModel, Cmd.none)
         RemoveTask taskId -> handleUpdateTask taskId model msg
         DeleteTask taskId ->
             case Dict.get taskId model.base.tasks of
@@ -512,22 +553,14 @@ view model =
                 Loading _ -> div [class "waiter"] [text "Chargement du projet en cours, veuillez patienter"]
                 Failing error -> div [class "error"] [text error.info]
                 Viewing->
-                    --
-                    --
                     div []
                         [ (section [class "project_desc"] [
                             (if (String.isEmpty (String.trim model.base.desc)) then text "(Description absente)"
                             else Markdown.toHtml [] model.base.desc)])
                         , hr [] []
-                        --
-                        --
-                        , section [] (viewTasks model.base.tasks model.base.topLevel)
-                        --
-                        --
+                        , section []
+                            (viewTasks (not (List.isEmpty model.dndTasks)) "-1" model.base.tasks model.base.topLevel)
                         ]
-                    --
-                    --
-                    --
                 Editing ->
                     let previewText = if model.tmpPreview then "Édition" else "Preview" in
                     div []
@@ -587,15 +620,17 @@ viewIndicatorsTracker indicators endSentence =
             ]
     else [Html.nothing]
 
-viewTasks : Dict String ProjectTask -> List String -> List (Html Msg)
-viewTasks tasks taskIds =
-    List.map (viewTask tasks) taskIds
+viewTasks : Bool -> TaskId -> Dict String ProjectTask -> List String -> List (Html Msg)
+viewTasks isDragIn parentId tasks taskIds =
+    List.map (viewTask isDragIn tasks) taskIds
+        |> List.concat |> (\n -> List.append n [viewPlaceholder isDragIn parentId "foot"])
 
-viewTask : Dict String ProjectTask -> String -> Html Msg
-viewTask tasks taskId =
+viewTask : Bool -> Dict String ProjectTask -> String -> List (Html Msg)
+viewTask isDragIn tasks taskId =
     case Dict.get taskId tasks of
         Just task ->
             let
+                transientDragIn = if task.moved then False else isDragIn
                 statusColor = case task.status of
                     Planned -> "wait_color"
                     Wip -> "wip_color"
@@ -628,9 +663,7 @@ viewTask tasks taskId =
                                 if task.moved then [onClick (RemoveMoveTask taskId), class "project_dnd_button_round"]
                                 else [onClick (AddMoveTask taskId), class "button_round"]
                         in
-                        --
                         ( (class taskClasses)::[onClick (OpenTask taskId)]
-                        --
                         ,
                             [ button [onClick (RemoveTask taskId), class "button_round"] [iconClose]
                             , button [onClick (EditTask taskId), class "button_round"] [iconEdit]
@@ -641,11 +674,11 @@ viewTask tasks taskId =
                             True ->
                                 let
                                     subTasksList =
-                                        if List.isEmpty task.subTasks then [Html.nothing]
-                                        else [div [class "task_subtasks"] (viewTasks tasks task.subTasks)]
+                                        if List.isEmpty task.subTasks then [viewPlaceholder transientDragIn taskId "foot", hr [] []]
+                                        else [div [class "task_subtasks"] (viewTasks transientDragIn taskId tasks task.subTasks)]
                                 in
                                 List.concat
-                                    [ [div [class "task_desc"] [Markdown.toHtml [] task.desc]]
+                                    [ [article [class "task_desc"] [Markdown.toHtml [] task.desc]]
                                     , (
                                         if List.isEmpty task.subTasks then [Html.nothing]
                                         else [div [] [text "Liste des sous-tâches :"]]
@@ -671,7 +704,8 @@ viewTask tasks taskId =
                                 ]
                         ])
             in
-            div [] (List.append
+            [ viewPlaceholder isDragIn task.parentId taskId
+            , div [] (List.append
                 [div [class "task_line"]
                     ((div actions
                         [case task.mode of
@@ -695,7 +729,15 @@ viewTask tasks taskId =
                 ]
                 content
                 )
-        Nothing -> Html.nothing    
+            ]
+        Nothing -> [Html.nothing]    
+
+viewPlaceholder : Bool -> TaskId -> TaskId -> Html Msg
+viewPlaceholder isDragIn parentId beforeId =
+    div
+        ([class (if isDragIn then "task_placeholder" else "task_space")]
+        ++(if isDragIn then [onClick (MoveTask parentId beforeId)] else []))
+        []
 
 viewDnDManager : Model -> List (Html Msg)
 viewDnDManager model =
@@ -706,18 +748,18 @@ viewDnDManager model =
             , style "top" "100px"
             , style "right" (if model.dndShow then "306px" else "0")
             ]
-            [if model.dndShow then iconClose else iconMove]
+            [iconMove]
         managerCancel = button
             [ class "button_rightsnap"
             , onClick CancelMove
             , style "top" "130px"
-            , style "right" (if model.dndShow then "306" else "0")
+            , style "right" (if model.dndShow then "306px" else "0")
             ]
             [iconClose]
     in
     managerToggle::managerCancel
     ::(if model.dndShow then
-        div [class "project_dnd_manager"]
+        section [class "project_dnd_manager"]
             (List.indexedMap (viewDnDTask (dndSystem.info model.dnd) model.base.tasks) model.dndTasks)
         else Html.nothing
     )::[]
@@ -734,13 +776,13 @@ viewDnDTask mInfo tasks index dndTask =
         Just {dragIndex} ->
             if dragIndex /= index then
                 div
-                    ([id dndId, class "task_line"]++dndSystem.dropEvents index dndId)
+                    ([id dndId, class "task_line with_margins"]++dndSystem.dropEvents index dndId)
                     [div [class "project_dnd_taskbar dnd_color"] [text taskTitle]]
             else
                 div [class "task_line round_box dnd_color", style "width" "260px"] []
         Nothing ->
             div
-                [id dndId, class "task_line"]
+                [id dndId, class "task_line with_margins"]
                 [ span
                     (class "project_dnd_taskbar dnd_color"::dndSystem.dragEvents index dndId)
                     [text taskTitle]
