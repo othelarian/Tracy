@@ -145,7 +145,7 @@ update msg model =
                 Ok apiToken ->
                     let
                         modelUrl = guest.url
-                        newUrl = {modelUrl | path = "saveToken", query = Just("token="++apiToken.refreshToken), fragment = Nothing}
+                        newUrl = {modelUrl | path = "/saveToken", query = Just("token="++apiToken.refreshToken), fragment = Nothing}
                     in
                     ( Guest {guest | apiToken = apiToken, phase = Saving}
                     , Http.get

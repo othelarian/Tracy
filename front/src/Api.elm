@@ -118,7 +118,7 @@ decodeUploadFile =
 
 createIdentityUrl : Url.Url -> String
 createIdentityUrl url =
-    let newUrl = {url | path = "app.html", query = Nothing, fragment = Nothing} in
+    let newUrl = {url | path = "/app.html", query = Nothing, fragment = Nothing} in
     UB.crossOrigin
         "https://accounts.google.com"
         ["o", "oauth2", "v2", "auth"]
@@ -139,7 +139,7 @@ createTokenApiBody args =
 
 getFirstAccess : String -> Url.Url -> (Result Http.Error ApiToken -> msg) -> Cmd msg
 getFirstAccess code url message =
-    let newUrl = {url | path = "app.html", query = Nothing, fragment = Nothing} in
+    let newUrl = {url | path = "/app.html", query = Nothing, fragment = Nothing} in
     Http.post
         { url = UB.crossOrigin "https://www.googleapis.com" ["oauth2", "v4", "token"] []
         , body = Http.stringBody
